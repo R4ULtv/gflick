@@ -1,21 +1,46 @@
 # macOS validation
 
-Open Hub supports Windows 10/11 and macOS from the same Rust core. Run this checklist
-on real macOS hardware after installing the Xcode Command Line Tools and Rust stable.
-No settings are changed by the commands in the first three sections.
+Open Hub supports Windows 10/11 and macOS on Apple Silicon from the same Rust core.
+Intel macOS is intentionally unsupported and is not part of this checklist. Run it on
+real Apple Silicon hardware after installing the Xcode Command Line Tools and Rust
+stable. No settings are changed by the commands in the first three sections.
+
+## Validated baseline
+
+The complete checklist passed on 2026-08-02 using a Mac16,12 with an Apple M4, macOS
+15.7.7, and Rust 1.97.1. Debug and release workspace builds completed without warnings;
+all 38 tests, formatting, and strict all-target Clippy passed.
+
+The original PRO X Superlight, G305, and PRO X Superlight 2 all passed discovery,
+feature audits, profile decoding with valid CRCs, agent snapshots, IPC requests, and
+reversible live-setting tests. Direct-USB disconnect/connect/ready events were verified.
+No onboard flash was written, every live setting was restored, firmware lighting control
+was returned to the G305, and graceful shutdown left no stale local socket.
+
+A 61-second release-agent sample using deliberately aggressive 2-second discovery and
+30-second battery intervals averaged 0.28% CPU and 3,847 KiB RSS. This is a development
+baseline, not a final power-efficiency claim.
+
+Sleeping receiver-connected mice occasionally timed out during their initial root-feature
+query and worked after being woken. One GPX2 profile read encountered an IOKit SetReport
+timeout and succeeded immediately with all five CRCs valid in a fresh session. A changed
+extended-DPI request made while the GPX2 was under onboard control returned HID++ 2.0
+`NOT_ALLOWED` (`0x05`); the same request succeeded in host mode and the original onboard
+profile was restored. These observations did not justify a speculative transport change.
 
 ## 1. Build validation
 
 ```sh
 rustc --version
+cargo fmt --all -- --check
 cargo build --workspace
+cargo build --release --workspace
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Record whether the Mac is Apple Silicon or Intel and the macOS version. Both the core
-and the two command-line applications must build without platform-specific source
-changes.
+Record the Apple Silicon model, architecture, and macOS version. Both the core and the
+two command-line applications must build without platform-specific source changes.
 
 ## 2. HID discovery
 
@@ -32,12 +57,15 @@ are distinguished correctly, and the agent can open each discovered stable ID.
 
 ## 3. Read-only feature proof
 
-Use the VID:PID and HID++ index printed by discovery. Typical values for the two tested
+Use the VID:PID and HID++ index printed by discovery. Typical values for the three tested
 devices are shown below:
 
 ```sh
 cargo run -p open-hub-probe -- probe --index 046d:c094 --device-index ff
 cargo run -p open-hub-probe -- profiles --index 046d:c094 --device-index ff
+
+cargo run -p open-hub-probe -- probe --index 046d:c53f --device-index 1
+cargo run -p open-hub-probe -- profiles --index 046d:c53f --device-index 1
 
 cargo run -p open-hub-probe -- probe --index 046d:c54d --device-index 1
 cargo run -p open-hub-probe -- profiles --index 046d:c54d --device-index 1

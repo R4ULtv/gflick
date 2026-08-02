@@ -21,10 +21,11 @@ writes, read-back verification, and automatic rollback.
 
 ## Project scope
 
-Open Hub targets Windows 10/11 and macOS. The shared Rust core, probe, and monitoring
-agent must compile and behave consistently on both platforms; platform-specific code
-will be isolated behind small adapters when service installation or UI integration is
-added.
+Open Hub targets Windows 10/11 and macOS on Apple Silicon (`aarch64-apple-darwin`).
+Intel macOS is intentionally outside the supported and tested platform matrix. The
+shared Rust core, probe, and monitoring agent must behave consistently on the supported
+platforms; platform-specific code will be isolated behind small adapters when service
+installation or UI integration is added.
 
 Host keyboard shortcuts/macros, onboard macro creation, and per-application profiles
 are intentional non-goals. Button assignments stored directly in normal onboard
@@ -62,7 +63,7 @@ prevents older mice from appearing to have two independently configurable rates.
 - Rust stable
 - Windows: Visual Studio Build Tools with **Desktop development with C++** and a
   Windows SDK
-- macOS: Xcode Command Line Tools
+- macOS on Apple Silicon: Xcode Command Line Tools
 
 On macOS, Open Hub enables HIDAPI shared-device access because Logitech short- and
 long-report collections can require separate handles to the same physical device.
@@ -277,14 +278,26 @@ cargo run -p open-hub-probe -- use-firmware-lighting --index 046d:c53f --device-
   Adjustable DPI `0x2201`, Report Rate `0x8060`, performance/endurance Mode Status
   `0x8090`, Color LED Effects `0x8070`, and format `0x03` Onboard Profiles `0x8100`
 
-All three devices have passed read-only snapshots and decoded profile reads on Windows.
-The two Superlight models have also passed no-op DPI/polling writes with read-back
-verification. The Superlight 2 has passed reversible LOD (`high -> medium -> high`),
-Surface Mode (`off -> auto -> off`), and BHOP (`off -> 100 ms/on -> off`) round trips.
-G305 profile-format encoding is unit-tested and its onboard flash has not been changed.
-Current-value DPI and operating-mode writes passed read-back verification. Its four
-advertised volatile LED effects passed live read-back tests before firmware control was
-restored. Its polling rate passed a host-control `1000 -> 500 -> 1000 Hz` round trip,
+All three devices have passed read-only snapshots, decoded profile reads, and CRC checks
+on Windows and Apple Silicon macOS. On an Apple M4 running macOS 15.7.7, both debug and
+release workspace builds, all 38 tests, formatting, and strict Clippy passed. Reversible
+live DPI and polling changes passed on every mouse. The Superlight 2 additionally passed
+LOD, Surface Mode, and BHOP round trips; the G305 passed operating-mode and all four
+volatile lighting-effect round trips before firmware lighting control was restored.
+
+The macOS release agent averaged 0.28% CPU and 3,847 KiB RSS during a 61-second diagnostic
+run with deliberately aggressive 2-second discovery and 30-second battery intervals.
+Sleeping wireless mice occasionally required a fresh-session retry, and one non-repeating
+IOKit report timeout recovered immediately; neither required a platform-specific code
+change. See [docs/macos-testing.md](docs/macos-testing.md) for the complete validation
+scope and safety boundaries.
+
+The two Superlight models have also passed Windows DPI/polling writes with read-back
+verification. The Superlight 2 passed reversible LOD (`high -> medium -> high`), Surface
+Mode (`off -> auto -> off`), and BHOP (`off -> 100 ms/on -> off`) round trips. G305
+profile-format encoding is unit-tested and its onboard flash has not been changed. Its
+four advertised volatile LED effects passed live read-back tests before firmware control
+was restored. Its polling rate passed a host-control `1000 -> 500 -> 1000 Hz` round trip,
 after which onboard profile `0x0001` was reactivated.
 
 The original Superlight has passed a complete 255-byte identical-data flash write to

@@ -4,6 +4,10 @@ This matrix distinguishes complete end-user mouse functionality from HID++ entri
 that merely happen to be advertised by the firmware. `open-hub-probe features` is the
 runtime source of truth and prints the same classification for any connected device.
 
+The complete matrix is hardware-validated on Windows and Apple Silicon macOS. Intel
+macOS is intentionally unsupported. No onboard flash write has been sent from macOS;
+cross-platform write validation used reversible live settings only.
+
 | End-user capability | PRO X Superlight | PRO X Superlight 2 | G305 | Open Hub status |
 |---|---:|---:|---:|---|
 | Device name, model, unit ID, firmware | Yes | Yes | Yes | Complete |
