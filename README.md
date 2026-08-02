@@ -104,7 +104,25 @@ remains serialized on the agent thread while client connections sleep independen
 The intervals can be adjusted with `--scan-interval-seconds` and
 `--battery-interval-seconds`. Repeated HID failures discard and reopen a stale session,
 and graceful shutdown returns any software-controlled lighting to device firmware.
-State persistence remains intentionally deferred.
+
+The normal monitoring agent persists preferences in a versioned per-user JSON file:
+
+- Windows: `%APPDATA%\open-hub\settings.json`
+- macOS: `~/Library/Application Support/open-hub/settings.json`
+
+Use `--settings-file <PATH>` to override the location for development. The file is
+atomically replaced only after a setting succeeds and passes device read-back. On first
+discovery, a mouse with no saved entry adopts its current configuration as the baseline.
+Battery readings and other transient observations are never stored.
+
+Preferences are keyed by HID++ `hardware_id`, never by a USB path. A saved host/local
+configuration restores DPI, the active transport's polling rate, LOD, Surface Mode,
+operating mode, BHOP, and an explicitly selected lighting policy where supported. A
+saved onboard configuration only reactivates the existing profile; it never rewrites
+profile flash. Invalid JSON is preserved beside the original file with a `.corrupt-*`
+suffix before a fresh store is started, while an unknown future schema version is left
+untouched and rejected. The read-only `--once` mode neither applies nor captures saved
+preferences.
 
 Send a diagnostic request to a running agent through standard input:
 

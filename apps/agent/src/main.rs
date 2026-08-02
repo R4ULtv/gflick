@@ -1,8 +1,10 @@
 mod ipc;
+mod store;
 
 use std::{
     collections::BTreeMap,
     io::Read,
+    path::PathBuf,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -25,6 +27,10 @@ struct Cli {
     /// Seconds between battery queries for each open mouse.
     #[arg(long, default_value_t = 300)]
     battery_interval_seconds: u64,
+
+    /// Override the per-user JSON settings file path.
+    #[arg(long, value_name = "PATH")]
+    settings_file: Option<PathBuf>,
 
     /// Discover devices, print their initial state, and exit without starting IPC.
     #[arg(long, conflicts_with = "request")]
@@ -50,6 +56,7 @@ struct Cli {
 struct ActiveMouse {
     mouse: core::MouseDevice,
     hardware_id: Option<String>,
+    capabilities: core::DeviceCapabilities,
     battery: Option<core::BatteryInfo>,
     battery_check_after: std::time::Instant,
     battery_failures: u8,
@@ -60,15 +67,108 @@ struct Agent {
     manager: core::DeviceManager,
     active: BTreeMap<String, ActiveMouse>,
     battery_interval: Duration,
+    settings: store::SettingsStore,
+    restore_preferences: bool,
 }
 
 impl Agent {
-    fn new(battery_interval: Duration) -> Result<Self> {
+    fn new(
+        battery_interval: Duration,
+        settings_path: PathBuf,
+        restore_preferences: bool,
+    ) -> Result<Self> {
         Ok(Self {
             manager: core::DeviceManager::new()?,
             active: BTreeMap::new(),
             battery_interval,
+            settings: store::SettingsStore::load(settings_path)?,
+            restore_preferences,
         })
+    }
+
+    fn prepare_mouse(
+        &mut self,
+        device: &core::ManagedDevice,
+        mouse: core::MouseDevice,
+    ) -> Result<(ActiveMouse, protocol::DeviceState)> {
+        let mut settings = mouse.settings()?;
+        let capabilities = mouse.capabilities()?;
+        let hardware_id = match mouse.hardware_id() {
+            Ok(hardware_id) => hardware_id,
+            Err(error) => {
+                eprintln!(
+                    "Could not read persistent hardware identity for {}: {error:#}",
+                    device_label(device)
+                );
+                None
+            }
+        };
+        let mut lighting_controlled = false;
+
+        if self.restore_preferences {
+            if let Some(hardware_id) = hardware_id.as_deref() {
+                if let Some(preferences) = self.settings.device(hardware_id).cloned() {
+                    match restore_device_preferences(
+                        &mouse,
+                        device.connection_type(),
+                        &capabilities,
+                        &settings,
+                        &preferences,
+                    ) {
+                        Ok(controlled) => {
+                            lighting_controlled = controlled;
+                            println!("  Restored saved preferences: {hardware_id}");
+                        }
+                        Err(error) => {
+                            eprintln!(
+                                "Could not fully restore settings for {hardware_id}: {error:#}"
+                            );
+                            if matches!(
+                                preferences.lighting,
+                                Some(store::LightingPreference::Software { .. })
+                            ) {
+                                let _ = mouse.release_color_led_control();
+                            }
+                        }
+                    }
+                    settings = mouse.settings()?;
+                } else {
+                    let preferences = capture_device_preferences(&capabilities, &settings);
+                    if self.settings.insert_if_missing(hardware_id, preferences) {
+                        if let Err(error) = self.settings.save() {
+                            eprintln!(
+                                "Could not save initial settings for {hardware_id} to `{}`: {error:#}",
+                                self.settings.path().display()
+                            );
+                        } else {
+                            println!(
+                                "  Saved initial preferences: {}",
+                                self.settings.path().display()
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        print_initial_state(device, hardware_id.as_deref(), &settings);
+        let state = device_state(
+            device,
+            &mouse,
+            hardware_id.as_deref(),
+            &capabilities,
+            Some(settings.clone()),
+        )?;
+        let active = ActiveMouse {
+            mouse,
+            hardware_id,
+            capabilities,
+            battery: settings.battery,
+            battery_check_after: std::time::Instant::now() + self.battery_interval,
+            battery_failures: 0,
+            lighting_controlled,
+        };
+        Ok((active, state))
     }
 
     fn tick(&mut self) -> Result<Vec<protocol::AgentEvent>> {
@@ -99,40 +199,12 @@ impl Agent {
             }
 
             match self.manager.open(&device.id) {
-                Ok(mouse) => match mouse.settings() {
-                    Ok(settings) => {
-                        let hardware_id = match mouse.hardware_id() {
-                            Ok(hardware_id) => hardware_id,
-                            Err(error) => {
-                                eprintln!(
-                                    "Could not read persistent hardware identity for {}: {error:#}",
-                                    device_label(&device)
-                                );
-                                None
-                            }
-                        };
-                        print_initial_state(&device, hardware_id.as_deref(), &settings);
-                        let state = device_state(
-                            &device,
-                            &mouse,
-                            hardware_id.as_deref(),
-                            Some(settings.clone()),
-                        )?;
+                Ok(mouse) => match self.prepare_mouse(&device, mouse) {
+                    Ok((active, state)) => {
                         events.push(protocol::AgentEvent::DeviceReady {
                             device: Box::new(state),
                         });
-                        self.active.insert(
-                            device.id.clone(),
-                            ActiveMouse {
-                                mouse,
-                                hardware_id,
-                                battery: settings.battery,
-                                battery_check_after: std::time::Instant::now()
-                                    + self.battery_interval,
-                                battery_failures: 0,
-                                lighting_controlled: false,
-                            },
-                        );
+                        self.active.insert(device.id.clone(), active);
                     }
                     Err(error) => {
                         if changes
@@ -234,8 +306,20 @@ impl Agent {
             }
         }
 
-        match self.execute_command(request.command) {
-            Ok(data) => protocol::ServerMessage::success(id, data),
+        let command = request.command;
+        match self.execute_command(command.clone()) {
+            Ok(data) => {
+                if let Err(error) = self.remember_command(&command, &data) {
+                    return protocol::ServerMessage::error(
+                        id,
+                        protocol::ErrorCode::PersistenceFailed,
+                        format!(
+                            "the setting was applied and verified, but could not be persisted: {error:#}"
+                        ),
+                    );
+                }
+                protocol::ServerMessage::success(id, data)
+            }
             Err(error) => protocol::ServerMessage::error(
                 id,
                 protocol::ErrorCode::OperationFailed,
@@ -353,6 +437,33 @@ impl Agent {
         }
     }
 
+    fn remember_command(
+        &mut self,
+        command: &protocol::RequestCommand,
+        response: &protocol::ResponseData,
+    ) -> Result<()> {
+        if !command_changes_settings(command) {
+            return Ok(());
+        }
+        let protocol::ResponseData::Device { device } = response else {
+            bail!("a setting command returned no device snapshot");
+        };
+        let hardware_id = device
+            .device
+            .hardware_id
+            .as_deref()
+            .context("the device has no persistent HID++ hardware identity")?;
+        let preferences = self.settings.device_mut(hardware_id);
+        update_preferences(preferences, command, device);
+
+        self.settings.save().with_context(|| {
+            format!(
+                "failed to save preferences to `{}`",
+                self.settings.path().display()
+            )
+        })
+    }
+
     fn mouse(&self, id: &str) -> Result<&core::MouseDevice> {
         self.active
             .get(id)
@@ -374,6 +485,7 @@ impl Agent {
                 managed,
                 &active.mouse,
                 active.hardware_id.as_deref(),
+                &active.capabilities,
                 None,
             )?),
         })
@@ -392,6 +504,359 @@ impl Agent {
             }
         }
     }
+}
+
+fn capture_device_preferences(
+    capabilities: &core::DeviceCapabilities,
+    settings: &core::SettingsSnapshot,
+) -> store::DevicePreferences {
+    let control = match settings.configuration_source {
+        Some(core::ConfigurationSource::Host) => Some(store::ControlPreference::Host),
+        Some(core::ConfigurationSource::Onboard {
+            active_profile: Some(profile),
+        }) => Some(store::ControlPreference::Onboard { profile }),
+        _ => None,
+    };
+    let host = if matches!(control, Some(store::ControlPreference::Host)) {
+        capture_host_preferences(capabilities, settings)
+    } else {
+        store::HostPreferences::default()
+    };
+    store::DevicePreferences {
+        control,
+        host,
+        lighting: None,
+    }
+}
+
+fn update_preferences(
+    preferences: &mut store::DevicePreferences,
+    command: &protocol::RequestCommand,
+    device: &protocol::DeviceState,
+) {
+    match command {
+        protocol::RequestCommand::SetDpi { .. } => {
+            sync_control_preference(preferences, &device.settings);
+            preferences.host.dpi = device.settings.dpi.map(|dpi| dpi.current_x);
+        }
+        protocol::RequestCommand::SetPollingRate { .. } => {
+            sync_control_preference(preferences, &device.settings);
+            preferences.host.polling_rate =
+                polling_preference_from_protocol(device.settings.polling_rate);
+        }
+        protocol::RequestCommand::SetLiftOffDistance { .. } => {
+            sync_control_preference(preferences, &device.settings);
+            preferences.host.lift_off_distance =
+                device.settings.dpi.and_then(|dpi| dpi.lift_off_distance);
+        }
+        protocol::RequestCommand::SetSurfaceMode { .. } => {
+            sync_control_preference(preferences, &device.settings);
+            preferences.host.surface_mode = device.settings.surface_mode;
+        }
+        protocol::RequestCommand::SetOperatingMode { .. } => {
+            sync_control_preference(preferences, &device.settings);
+            preferences.host.operating_mode = device.settings.operating_mode;
+        }
+        protocol::RequestCommand::SetBunnyHopping { .. } => {
+            sync_control_preference(preferences, &device.settings);
+            preferences.host.bunny_hopping =
+                device
+                    .settings
+                    .bunny_hopping
+                    .map(|state| store::BunnyHoppingPreference {
+                        enabled: state.enabled,
+                        timeout_ms: state.timeout_ms,
+                    });
+        }
+        protocol::RequestCommand::SetLighting { zone, effect, .. } => {
+            preferences.lighting = Some(store::LightingPreference::Software {
+                zone: *zone,
+                effect: *effect,
+            });
+        }
+        protocol::RequestCommand::UseFirmwareLighting { .. } => {
+            preferences.lighting = Some(store::LightingPreference::Firmware);
+        }
+        protocol::RequestCommand::UseHostSettings { .. } => {
+            preferences.control = Some(store::ControlPreference::Host);
+            preferences.host = capture_protocol_host_preferences(device);
+        }
+        protocol::RequestCommand::UseOnboardProfile { profile, .. } => {
+            preferences.control = Some(store::ControlPreference::Onboard { profile: *profile });
+        }
+        protocol::RequestCommand::Ping
+        | protocol::RequestCommand::ListDevices
+        | protocol::RequestCommand::GetDevice { .. }
+        | protocol::RequestCommand::Subscribe => {}
+    }
+}
+
+fn sync_control_preference(
+    preferences: &mut store::DevicePreferences,
+    settings: &protocol::SettingsState,
+) {
+    match settings.configuration_source {
+        Some(protocol::ConfigurationSource::Host) => {
+            preferences.control = Some(store::ControlPreference::Host);
+        }
+        Some(protocol::ConfigurationSource::Onboard {
+            active_profile: Some(profile),
+        }) => {
+            preferences.control = Some(store::ControlPreference::Onboard { profile });
+        }
+        _ => {}
+    }
+}
+
+fn polling_preference_from_protocol(
+    polling: protocol::PollingRateState,
+) -> Option<store::PollingPreference> {
+    match polling {
+        protocol::PollingRateState::Unsupported => None,
+        protocol::PollingRateState::Shared { hz } => Some(store::PollingPreference::Shared { hz }),
+        protocol::PollingRateState::PerConnection {
+            wired_hz,
+            wireless_hz,
+        } => Some(store::PollingPreference::PerConnection {
+            wired_hz,
+            wireless_hz,
+        }),
+    }
+}
+
+fn capture_protocol_host_preferences(device: &protocol::DeviceState) -> store::HostPreferences {
+    store::HostPreferences {
+        dpi: device
+            .capabilities
+            .supported_dpi
+            .as_ref()
+            .and_then(|_| device.settings.dpi.map(|dpi| dpi.current_x)),
+        polling_rate: polling_preference_from_protocol(device.settings.polling_rate),
+        lift_off_distance: device
+            .capabilities
+            .lift_off_distance
+            .then(|| device.settings.dpi.and_then(|dpi| dpi.lift_off_distance))
+            .flatten(),
+        surface_mode: device
+            .capabilities
+            .surface_mode
+            .then_some(device.settings.surface_mode)
+            .flatten(),
+        operating_mode: device
+            .capabilities
+            .operating_mode_switch
+            .then_some(device.settings.operating_mode)
+            .flatten(),
+        bunny_hopping: device
+            .capabilities
+            .bunny_hopping
+            .then(|| {
+                device
+                    .settings
+                    .bunny_hopping
+                    .map(|state| store::BunnyHoppingPreference {
+                        enabled: state.enabled,
+                        timeout_ms: state.timeout_ms,
+                    })
+            })
+            .flatten(),
+    }
+}
+
+fn capture_host_preferences(
+    capabilities: &core::DeviceCapabilities,
+    settings: &core::SettingsSnapshot,
+) -> store::HostPreferences {
+    let mode = settings.mode_status;
+    store::HostPreferences {
+        dpi: capabilities
+            .supported_dpi
+            .as_ref()
+            .and_then(|_| settings.dpi.map(|dpi| dpi.current_x)),
+        polling_rate: match settings.polling_rate {
+            core::PollingRateSettings::Unsupported => None,
+            core::PollingRateSettings::Shared { hz } => {
+                Some(store::PollingPreference::Shared { hz })
+            }
+            core::PollingRateSettings::PerConnection {
+                wired_hz,
+                wireless_hz,
+            } => Some(store::PollingPreference::PerConnection {
+                wired_hz,
+                wireless_hz,
+            }),
+        },
+        lift_off_distance: capabilities
+            .lift_off_distance
+            .then(|| settings.dpi.and_then(|dpi| dpi.lod).map(lod_from_core))
+            .flatten(),
+        surface_mode: capabilities
+            .surface_mode
+            .then(|| {
+                mode.and_then(|mode| mode.surface_mode)
+                    .map(surface_from_core)
+            })
+            .flatten(),
+        operating_mode: capabilities
+            .operating_mode_switch
+            .then(|| mode.map(|mode| operating_from_core(mode.operating_mode())))
+            .flatten(),
+        bunny_hopping: capabilities
+            .bunny_hopping
+            .then(|| {
+                settings
+                    .bunny_hopping
+                    .map(|bhop| store::BunnyHoppingPreference {
+                        enabled: bhop.enabled,
+                        timeout_ms: bhop.timeout_ms,
+                    })
+            })
+            .flatten(),
+    }
+}
+
+fn restore_device_preferences(
+    mouse: &core::MouseDevice,
+    connection: core::ConnectionType,
+    capabilities: &core::DeviceCapabilities,
+    initial: &core::SettingsSnapshot,
+    preferences: &store::DevicePreferences,
+) -> Result<bool> {
+    let mut current = initial.clone();
+    let restore_host_settings = match preferences.control {
+        Some(store::ControlPreference::Host) => {
+            if !matches!(
+                current.configuration_source,
+                Some(core::ConfigurationSource::Host)
+            ) {
+                mouse.set_host_control()?;
+                current = mouse.settings()?;
+            }
+            true
+        }
+        Some(store::ControlPreference::Onboard { profile }) => {
+            if !matches!(
+                current.configuration_source,
+                Some(core::ConfigurationSource::Onboard {
+                    active_profile: Some(active)
+                }) if active == profile
+            ) {
+                mouse.activate_onboard_profile(profile)?;
+            }
+            false
+        }
+        None => false,
+    };
+
+    if restore_host_settings {
+        restore_host_preferences(mouse, connection, capabilities, &current, &preferences.host)?;
+    }
+
+    match &preferences.lighting {
+        Some(store::LightingPreference::Firmware) => {
+            mouse.release_color_led_control()?;
+            Ok(false)
+        }
+        Some(store::LightingPreference::Software { zone, effect }) => {
+            if !capabilities.color_led_effects {
+                bail!("stored lighting preference is unsupported by this mouse");
+            }
+            mouse.set_color_led_effect(*zone, lighting_to_core(*effect))?;
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
+fn restore_host_preferences(
+    mouse: &core::MouseDevice,
+    connection: core::ConnectionType,
+    capabilities: &core::DeviceCapabilities,
+    current: &core::SettingsSnapshot,
+    preferences: &store::HostPreferences,
+) -> Result<()> {
+    if let Some(dpi) = preferences.dpi
+        && capabilities.supported_dpi.is_some()
+        && current
+            .dpi
+            .is_none_or(|state| state.current_x != dpi || state.current_y.is_some_and(|y| y != dpi))
+    {
+        mouse.set_dpi(dpi)?;
+    }
+
+    if let Some(polling) = preferences.polling_rate {
+        match (polling, current.polling_rate, connection) {
+            (
+                store::PollingPreference::Shared { hz },
+                core::PollingRateSettings::Shared { hz: current },
+                connection,
+            ) if hz != current => {
+                mouse.set_polling_rate(connection, hz)?;
+            }
+            (
+                store::PollingPreference::PerConnection { wired_hz, .. },
+                core::PollingRateSettings::PerConnection {
+                    wired_hz: current, ..
+                },
+                core::ConnectionType::Wired,
+            ) if wired_hz != current => {
+                mouse.set_polling_rate(core::ConnectionType::Wired, wired_hz)?;
+            }
+            (
+                store::PollingPreference::PerConnection { wireless_hz, .. },
+                core::PollingRateSettings::PerConnection {
+                    wireless_hz: current,
+                    ..
+                },
+                core::ConnectionType::GamingWireless,
+            ) if wireless_hz != current => {
+                mouse.set_polling_rate(core::ConnectionType::GamingWireless, wireless_hz)?;
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(lod) = preferences.lift_off_distance
+        && capabilities.lift_off_distance
+        && current.dpi.and_then(|dpi| dpi.lod).map(lod_from_core) != Some(lod)
+    {
+        mouse.set_lift_off_distance(lod_to_core(lod))?;
+    }
+    if let Some(surface) = preferences.surface_mode
+        && capabilities.surface_mode
+        && current
+            .mode_status
+            .and_then(|mode| mode.surface_mode)
+            .map(surface_from_core)
+            != Some(surface)
+    {
+        mouse.set_surface_mode(surface_to_core(surface))?;
+    }
+    if let Some(mode) = preferences.operating_mode
+        && capabilities.operating_mode_switch
+        && current
+            .mode_status
+            .map(|state| operating_from_core(state.operating_mode()))
+            != Some(mode)
+    {
+        mouse.set_operating_mode(operating_to_core(mode))?;
+    }
+    if let Some(bhop) = preferences.bunny_hopping
+        && capabilities.bunny_hopping
+        && current.bunny_hopping.is_none_or(|state| {
+            state.enabled != bhop.enabled || state.timeout_ms != bhop.timeout_ms
+        })
+    {
+        let timeout_ms = if bhop.enabled {
+            bhop.timeout_ms
+        } else {
+            // The core validates the timeout range even when disabling BHOP because
+            // firmware still expects a well-formed request.
+            100
+        };
+        mouse.set_bunny_hopping(bhop.enabled, timeout_ms)?;
+    }
+    Ok(())
 }
 
 fn command_device_id(command: &protocol::RequestCommand) -> Option<&str> {
@@ -444,13 +909,13 @@ fn device_state(
     device: &core::ManagedDevice,
     mouse: &core::MouseDevice,
     hardware_id: Option<&str>,
+    capabilities: &core::DeviceCapabilities,
     settings: Option<core::SettingsSnapshot>,
 ) -> Result<protocol::DeviceState> {
-    let capabilities = mouse.capabilities()?;
     let settings = settings.map_or_else(|| mouse.settings(), Ok)?;
     Ok(protocol::DeviceState {
         device: device_summary(device, true, hardware_id),
-        capabilities: capabilities_state(capabilities),
+        capabilities: capabilities_state(capabilities.clone()),
         settings: settings_state(settings),
     })
 }
@@ -622,6 +1087,13 @@ fn operating_to_core(value: protocol::OperatingMode) -> core::OperatingMode {
     }
 }
 
+fn operating_from_core(value: core::OperatingMode) -> protocol::OperatingMode {
+    match value {
+        core::OperatingMode::Endurance => protocol::OperatingMode::Endurance,
+        core::OperatingMode::Performance => protocol::OperatingMode::Performance,
+    }
+}
+
 fn lighting_to_core(value: protocol::LightingEffect) -> core::ColorLedEffect {
     match value {
         protocol::LightingEffect::Disabled => core::ColorLedEffect::Disabled,
@@ -760,13 +1232,22 @@ fn main() -> Result<()> {
     }
 
     let scan_interval = Duration::from_secs(cli.scan_interval_seconds);
-    let mut agent = Agent::new(Duration::from_secs(cli.battery_interval_seconds))?;
+    let settings_path = cli
+        .settings_file
+        .map_or_else(store::SettingsStore::default_path, Ok)?;
+    let mut agent = Agent::new(
+        Duration::from_secs(cli.battery_interval_seconds),
+        settings_path,
+        !cli.once,
+    )?;
 
     if cli.once {
         println!("Open Hub agent one-shot discovery; no settings will be changed.");
         agent.tick()?;
         return Ok(());
     }
+
+    println!("Settings: {}", agent.settings.path().display());
 
     let ipc = ipc::start()?;
     let shutdown = Arc::new(AtomicBool::new(false));
@@ -826,6 +1307,59 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
 
+    fn sample_device_state() -> protocol::DeviceState {
+        protocol::DeviceState {
+            device: protocol::DeviceSummary {
+                id: "session-id".to_owned(),
+                hardware_id: Some("046d:unit:1077e69f".to_owned()),
+                vendor_id: 0x046d,
+                product_id: 0xc54d,
+                product_name: Some("USB Receiver".to_owned()),
+                serial_number: None,
+                connection: protocol::DeviceConnection::Receiver,
+                device_index: 1,
+                ready: true,
+            },
+            capabilities: protocol::DeviceCapabilities {
+                battery: true,
+                supported_dpi: Some(vec![800, 1600]),
+                polling_rates: protocol::PollingRateCapabilities::PerConnection {
+                    wired_hz: vec![1000],
+                    wireless_hz: vec![1000, 2000],
+                },
+                onboard_profiles: true,
+                onboard_profile_description: None,
+                lift_off_distance: true,
+                surface_mode: true,
+                operating_mode_switch: false,
+                color_led_effects: false,
+                bunny_hopping: true,
+                mouse_button_filter: true,
+            },
+            settings: protocol::SettingsState {
+                battery: None,
+                dpi: Some(protocol::DpiState {
+                    current_x: 800,
+                    default_x: 800,
+                    current_y: Some(800),
+                    default_y: Some(800),
+                    lift_off_distance: Some(protocol::LiftOffDistance::High),
+                }),
+                polling_rate: protocol::PollingRateState::PerConnection {
+                    wired_hz: 1000,
+                    wireless_hz: 2000,
+                },
+                configuration_source: Some(protocol::ConfigurationSource::Host),
+                operating_mode: Some(protocol::OperatingMode::Endurance),
+                surface_mode: Some(protocol::SurfaceMode::Off),
+                bunny_hopping: Some(protocol::BunnyHoppingState {
+                    enabled: false,
+                    timeout_ms: 0,
+                }),
+            },
+        }
+    }
+
     #[test]
     fn extracts_device_ids_only_from_device_commands() {
         assert_eq!(command_device_id(&protocol::RequestCommand::Ping), None);
@@ -849,5 +1383,61 @@ mod tests {
                 dpi: 800,
             }
         ));
+    }
+
+    #[test]
+    fn host_mode_captures_supported_settings_for_restore() {
+        let state = sample_device_state();
+        let mut preferences = store::DevicePreferences::default();
+        update_preferences(
+            &mut preferences,
+            &protocol::RequestCommand::UseHostSettings {
+                device_id: "session-id".to_owned(),
+            },
+            &state,
+        );
+
+        assert_eq!(preferences.control, Some(store::ControlPreference::Host));
+        assert_eq!(preferences.host.dpi, Some(800));
+        assert_eq!(
+            preferences.host.polling_rate,
+            Some(store::PollingPreference::PerConnection {
+                wired_hz: 1000,
+                wireless_hz: 2000,
+            })
+        );
+        assert_eq!(
+            preferences.host.lift_off_distance,
+            Some(protocol::LiftOffDistance::High)
+        );
+        assert_eq!(preferences.host.operating_mode, None);
+    }
+
+    #[test]
+    fn selecting_onboard_profile_preserves_saved_host_preferences() {
+        let mut state = sample_device_state();
+        let mut preferences = store::DevicePreferences {
+            control: Some(store::ControlPreference::Host),
+            host: capture_protocol_host_preferences(&state),
+            lighting: None,
+        };
+        let saved_host = preferences.host.clone();
+        state.settings.configuration_source = Some(protocol::ConfigurationSource::Onboard {
+            active_profile: Some(1),
+        });
+        update_preferences(
+            &mut preferences,
+            &protocol::RequestCommand::UseOnboardProfile {
+                device_id: "session-id".to_owned(),
+                profile: 1,
+            },
+            &state,
+        );
+
+        assert_eq!(
+            preferences.control,
+            Some(store::ControlPreference::Onboard { profile: 1 })
+        );
+        assert_eq!(preferences.host, saved_host);
     }
 }

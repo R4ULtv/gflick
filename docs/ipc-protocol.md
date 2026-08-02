@@ -56,6 +56,24 @@ The field is additive and optional in protocol v1 so older recorded messages wit
 `hardware_id` still deserialize. A connected but not-yet-ready mouse reports no hardware
 identity until the agent can query it.
 
+## Preference persistence
+
+The agent, not IPC clients, owns the per-user settings file. The first successful normal
+discovery captures a baseline for a previously unknown `hardware_id`. After that, every
+successful setting command updates the file only after HID++ read-back succeeds. Battery
+and connection events never cause disk writes.
+
+Host/local preferences are reapplied when a ready mouse reconnects. For extended polling,
+only the value matching the current wired or wireless transport is written. Selecting an
+onboard profile stores its sector number without copying or rewriting profile flash, and
+the previously saved host preferences remain available if the user later switches back.
+The diagnostic `--once` mode does not apply or capture preferences.
+
+If a device write succeeds but the atomic settings-file replacement fails, the response
+uses `persistence_failed` and explicitly reports that the live setting changed but was
+not saved. This lets a settings client refresh the device without falsely claiming the
+preference is durable.
+
 ## Events
 
 A connection that sends `subscribe` becomes an event-only stream after receiving its

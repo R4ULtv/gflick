@@ -192,6 +192,7 @@ pub enum ErrorCode {
     DeviceNotFound,
     DeviceUnavailable,
     OperationFailed,
+    PersistenceFailed,
     Internal,
 }
 
