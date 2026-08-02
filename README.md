@@ -54,6 +54,12 @@ long-report collections, assigns direct-USB or receiver device indexes, and open
 ready `MouseDevice` by stable in-memory ID. `refresh_with_changes()` reports stable-ID
 connection and disconnection differences between discovery passes.
 
+The in-memory ID remains the routing key for commands during the current agent session.
+Once a mouse is ready, the agent also exposes an opaque `hardware_id` derived from its
+HID++ unit ID. Unlike the routing ID's USB-path fallback, the hardware ID is independent
+of ports, receiver paths, and wired/wireless transport, so future persisted preferences
+can follow the physical mouse safely.
+
 Polling capabilities are represented explicitly as `Shared` for legacy `0x8060`
 devices or `PerConnection { wired, wireless }` for extended `0x8061` devices. This
 prevents older mice from appearing to have two independently configurable rates.

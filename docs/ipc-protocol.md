@@ -43,6 +43,19 @@ Successful setting commands return a fresh complete device snapshot. The agent a
 broadcasts a `settings_changed` event so other open clients can refresh immediately.
 All validation and HID++ read-back checks remain inside `open-hub-core`.
 
+Each device summary contains two different identities:
+
+- `id` is the current session's routing key and is used in IPC commands. When USB does
+  not expose a serial number it can contain a hash of the HID path.
+- `hardware_id` is an optional opaque physical-device key derived from the HID++ unit
+  ID. It becomes available after `device_ready` and is stable across ports, receiver
+  paths, and wired/wireless transport. Persisted preferences must use this value and
+  must never fall back to the routing ID.
+
+The field is additive and optional in protocol v1 so older recorded messages without a
+`hardware_id` still deserialize. A connected but not-yet-ready mouse reports no hardware
+identity until the agent can query it.
+
 ## Events
 
 A connection that sends `subscribe` becomes an event-only stream after receiving its

@@ -142,6 +142,18 @@ impl MouseDevice {
         }))
     }
 
+    /// Returns an opaque identity suitable for associating persisted preferences with
+    /// a physical mouse. Unlike the transport/session ID used by `DeviceManager`, this
+    /// value is derived from the HID++ unit ID and does not depend on a USB path,
+    /// receiver, or connection type.
+    pub fn hardware_id(&self) -> Result<Option<String>> {
+        let Some(feature) = self.features.device_information else {
+            return Ok(None);
+        };
+        let information = self.session.device_information(feature)?;
+        Ok(hardware_id_from_unit_id(information.unit_id))
+    }
+
     pub fn capabilities(&self) -> Result<DeviceCapabilities> {
         let extended_dpi_capabilities = self
             .features
@@ -1249,6 +1261,16 @@ impl MouseDevice {
     }
 }
 
+fn hardware_id_from_unit_id(unit_id: [u8; 4]) -> Option<String> {
+    if unit_id == [0; 4] || unit_id == [u8::MAX; 4] {
+        return None;
+    }
+    Some(format!(
+        "046d:unit:{:02x}{:02x}{:02x}{:02x}",
+        unit_id[0], unit_id[1], unit_id[2], unit_id[3]
+    ))
+}
+
 fn apply_profile_edit(
     profile: &mut OnboardProfile,
     format: u8,
@@ -1862,6 +1884,16 @@ fn led_brightness(raw: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn derives_hardware_id_from_valid_unit_id() {
+        assert_eq!(
+            hardware_id_from_unit_id([0x10, 0x77, 0xe6, 0x9f]),
+            Some("046d:unit:1077e69f".to_owned())
+        );
+        assert_eq!(hardware_id_from_unit_id([0; 4]), None);
+        assert_eq!(hardware_id_from_unit_id([u8::MAX; 4]), None);
+    }
 
     #[test]
     fn rejects_values_outside_capability_list() {

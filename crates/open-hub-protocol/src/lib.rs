@@ -229,7 +229,13 @@ pub enum DeviceConnection {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceSummary {
+    /// Session-scoped routing ID. It may include a USB-path hash and must not be used
+    /// as the key for persisted preferences.
     pub id: String,
+    /// Opaque physical-device identity derived from HID++ data. It is available after
+    /// the agent opens the mouse and remains stable across transports and USB paths.
+    #[serde(default)]
+    pub hardware_id: Option<String>,
     pub vendor_id: u16,
     pub product_id: u16,
     pub product_name: Option<String>,
@@ -375,5 +381,25 @@ mod tests {
             message
         );
         assert!(json.contains("\"message\":\"event\""));
+    }
+
+    #[test]
+    fn device_summary_keeps_hardware_identity_backward_compatible() {
+        let old_json = r#"{
+            "id":"046d:c53f:path-example:01",
+            "vendor_id":1133,
+            "product_id":50495,
+            "product_name":"USB Receiver",
+            "serial_number":null,
+            "connection":"receiver",
+            "device_index":1,
+            "ready":true
+        }"#;
+        let mut summary: DeviceSummary = serde_json::from_str(old_json).unwrap();
+        assert_eq!(summary.hardware_id, None);
+
+        summary.hardware_id = Some("046d:unit:1234abcd".to_owned());
+        let json = serde_json::to_string(&summary).unwrap();
+        assert!(json.contains("\"hardware_id\":\"046d:unit:1234abcd\""));
     }
 }

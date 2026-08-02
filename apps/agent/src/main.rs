@@ -49,6 +49,7 @@ struct Cli {
 
 struct ActiveMouse {
     mouse: core::MouseDevice,
+    hardware_id: Option<String>,
     battery: Option<core::BatteryInfo>,
     battery_check_after: std::time::Instant,
     battery_failures: u8,
@@ -85,7 +86,7 @@ impl Agent {
         for device in &changes.connected {
             println!("Connected: {}", device_label(device));
             events.push(protocol::AgentEvent::DeviceConnected {
-                device: device_summary(device, false),
+                device: device_summary(device, false, None),
             });
         }
 
@@ -100,8 +101,23 @@ impl Agent {
             match self.manager.open(&device.id) {
                 Ok(mouse) => match mouse.settings() {
                     Ok(settings) => {
-                        print_initial_state(&device, &settings);
-                        let state = device_state(&device, &mouse, Some(settings.clone()))?;
+                        let hardware_id = match mouse.hardware_id() {
+                            Ok(hardware_id) => hardware_id,
+                            Err(error) => {
+                                eprintln!(
+                                    "Could not read persistent hardware identity for {}: {error:#}",
+                                    device_label(&device)
+                                );
+                                None
+                            }
+                        };
+                        print_initial_state(&device, hardware_id.as_deref(), &settings);
+                        let state = device_state(
+                            &device,
+                            &mouse,
+                            hardware_id.as_deref(),
+                            Some(settings.clone()),
+                        )?;
                         events.push(protocol::AgentEvent::DeviceReady {
                             device: Box::new(state),
                         });
@@ -109,6 +125,7 @@ impl Agent {
                             device.id.clone(),
                             ActiveMouse {
                                 mouse,
+                                hardware_id,
                                 battery: settings.battery,
                                 battery_check_after: std::time::Instant::now()
                                     + self.battery_interval,
@@ -240,7 +257,14 @@ impl Agent {
                     .manager
                     .devices()
                     .iter()
-                    .map(|device| device_summary(device, self.active.contains_key(&device.id)))
+                    .map(|device| {
+                        let active = self.active.get(&device.id);
+                        device_summary(
+                            device,
+                            active.is_some(),
+                            active.and_then(|mouse| mouse.hardware_id.as_deref()),
+                        )
+                    })
                     .collect(),
             }),
             RequestCommand::GetDevice { device_id } => self.device_response(&device_id),
@@ -341,9 +365,17 @@ impl Agent {
             .manager
             .device(id)
             .with_context(|| format!("device `{id}` is not connected"))?;
-        let mouse = self.mouse(id)?;
+        let active = self
+            .active
+            .get(id)
+            .with_context(|| format!("device `{id}` is not ready"))?;
         Ok(protocol::ResponseData::Device {
-            device: Box::new(device_state(managed, mouse, None)?),
+            device: Box::new(device_state(
+                managed,
+                &active.mouse,
+                active.hardware_id.as_deref(),
+                None,
+            )?),
         })
     }
 
@@ -411,20 +443,26 @@ fn settings_event_from_response(
 fn device_state(
     device: &core::ManagedDevice,
     mouse: &core::MouseDevice,
+    hardware_id: Option<&str>,
     settings: Option<core::SettingsSnapshot>,
 ) -> Result<protocol::DeviceState> {
     let capabilities = mouse.capabilities()?;
     let settings = settings.map_or_else(|| mouse.settings(), Ok)?;
     Ok(protocol::DeviceState {
-        device: device_summary(device, true),
+        device: device_summary(device, true, hardware_id),
         capabilities: capabilities_state(capabilities),
         settings: settings_state(settings),
     })
 }
 
-fn device_summary(device: &core::ManagedDevice, ready: bool) -> protocol::DeviceSummary {
+fn device_summary(
+    device: &core::ManagedDevice,
+    ready: bool,
+    hardware_id: Option<&str>,
+) -> protocol::DeviceSummary {
     protocol::DeviceSummary {
         id: device.id.clone(),
+        hardware_id: hardware_id.map(str::to_owned),
         vendor_id: device.vendor_id,
         product_id: device.product_id,
         product_name: device.product_name.clone(),
@@ -636,8 +674,13 @@ fn battery_label(battery: Option<core::BatteryInfo>) -> String {
     )
 }
 
-fn print_initial_state(device: &core::ManagedDevice, settings: &core::SettingsSnapshot) {
+fn print_initial_state(
+    device: &core::ManagedDevice,
+    hardware_id: Option<&str>,
+    settings: &core::SettingsSnapshot,
+) {
     println!("  Ready: {}", device.id);
+    println!("  Hardware ID: {}", hardware_id.unwrap_or("unavailable"));
     println!("  Battery: {}", battery_label(settings.battery));
     match settings.dpi {
         Some(dpi) => println!(
