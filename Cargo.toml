@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/open-hub-core"]
+members = ["apps/probe", "crates/open-hub-core"]
 resolver = "3"
 
 [workspace.package]
@@ -15,4 +15,6 @@ all = { level = "deny", priority = -1 }
 
 [workspace.dependencies]
 anyhow = "1.0.98"
+clap = { version = "4.5.42", features = ["derive"] }
 hidapi = { version = "2.6.6", default-features = false }
+open-hub-core = { path = "crates/open-hub-core" }

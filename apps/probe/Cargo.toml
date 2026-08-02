@@ -1,0 +1,20 @@
+[package]
+name = "open-hub-probe"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+open-hub-core.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+hidapi = { workspace = true, features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+hidapi = { workspace = true, features = ["macos-shared-device"] }
