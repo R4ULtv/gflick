@@ -42,6 +42,33 @@ cargo clippy --workspace --all-targets -- -D warnings
 Record the Apple Silicon model, architecture, and macOS version. Both the core and the
 two command-line applications must build without platform-specific source changes.
 
+### Per-user LaunchAgent validation
+
+After the release build succeeds, validate installation separately from the hardware
+write checks:
+
+```bash
+./target/release/open-hub-agent startup install
+./target/release/open-hub-agent startup status
+launchctl print "gui/$(id -u)/io.github.r4ultv.open-hub.agent"
+```
+
+Confirm that the installed executable is under
+`~/Library/Application Support/open-hub/bin`, the plist is under
+`~/Library/LaunchAgents`, and the agent becomes ready through its normal IPC endpoint.
+Log out and back in once to verify automatic login startup. Then verify graceful
+unregistration and reinstall it for continued testing:
+
+```bash
+./target/release/open-hub-agent startup uninstall
+./target/release/open-hub-agent startup status
+./target/release/open-hub-agent startup install
+```
+
+Inspect `~/Library/Logs/open-hub/agent.log` and `agent-error.log` for launch-only
+failures. The uninstall status must report no plist, no installed executable, and no
+loaded launchd job.
+
 ## 2. HID discovery
 
 Fully exit Logitech G HUB so it cannot compete for the HID++ interfaces, then run:

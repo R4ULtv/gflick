@@ -144,6 +144,35 @@ cargo run -q -p open-hub-agent -- --events
 The protocol schema, commands, event model, and safety boundaries are documented in
 [docs/ipc-protocol.md](docs/ipc-protocol.md).
 
+### Automatic per-user startup
+
+Build a release agent, then install that exact binary for the current user:
+
+```powershell
+cargo build --release -p open-hub-agent
+./target/release/open-hub-agent startup install
+./target/release/open-hub-agent startup status
+```
+
+No administrator privileges are required. Installation copies the agent to the user's
+local application-data directory rather than pointing startup at the Cargo target
+directory. Run `open-hub-agent startup uninstall` from the release build to remove it.
+
+On Windows, the executable is installed under
+`%LOCALAPPDATA%\open-hub\bin\open-hub-agent.exe`. A value in
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` invokes its internal launcher at
+each login; the launcher starts the real agent without a console window and exits. The
+install command also starts it immediately. Reinstall and uninstall request a graceful
+stop and wait for the running agent to release its executable, allowing its normal
+hardware cleanup to run before the binary is replaced or removed.
+
+On Apple Silicon macOS, the executable is installed under
+`~/Library/Application Support/open-hub/bin/open-hub-agent`. The installer writes and
+bootstraps `~/Library/LaunchAgents/io.github.r4ultv.open-hub.agent.plist` with a
+background process policy, `RunAtLoad`, and `KeepAlive`. Standard output and errors are
+written under `~/Library/Logs/open-hub/`. The same status and uninstall commands use the
+current user's `launchd` GUI domain.
+
 ## Use the probe
 
 First list the Logitech HID interfaces:

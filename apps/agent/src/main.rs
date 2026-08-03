@@ -1,4 +1,5 @@
 mod ipc;
+mod startup;
 mod store;
 
 use std::{
@@ -13,13 +14,17 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use open_hub_core as core;
 use open_hub_protocol as protocol;
 
 #[derive(Debug, Parser)]
 #[command(name = "open-hub-agent", about = "Low-overhead Open Hub mouse agent")]
+#[command(args_conflicts_with_subcommands = true)]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<CliCommand>,
+
     /// Seconds between USB device discovery passes.
     #[arg(long, default_value_t = 5)]
     scan_interval_seconds: u64,
@@ -51,6 +56,30 @@ struct Cli {
     /// Exit the event client after this many events; useful for diagnostics.
     #[arg(long, requires = "events")]
     event_count: Option<usize>,
+
+    /// Internal Windows login launcher that detaches the real agent.
+    #[cfg(windows)]
+    #[arg(long, hide = true)]
+    launch_background: bool,
+}
+
+#[derive(Debug, Subcommand)]
+enum CliCommand {
+    /// Manage automatic startup for the current user.
+    Startup {
+        #[command(subcommand)]
+        action: StartupAction,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Subcommand)]
+enum StartupAction {
+    /// Install this build and start it automatically at login.
+    Install,
+    /// Remove automatic startup and the installed agent binary.
+    Uninstall,
+    /// Show the current per-user startup registration.
+    Status,
 }
 
 struct ActiveMouse {
@@ -1300,6 +1329,22 @@ fn print_initial_state(
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    #[cfg(windows)]
+    if cli.launch_background {
+        return startup::launch_background();
+    }
+
+    if let Some(CliCommand::Startup { action }) = cli.command.as_ref() {
+        let (label, status) = match action {
+            StartupAction::Install => ("installed", startup::install()?),
+            StartupAction::Uninstall => ("removed", startup::uninstall()?),
+            StartupAction::Status => ("status", startup::status()?),
+        };
+        startup::print_status(label, &status);
+        return Ok(());
+    }
+
     if let Some(request) = cli.request {
         println!("{}", ipc::send_request(&request)?);
         return Ok(());
@@ -1352,6 +1397,16 @@ fn main() -> Result<()> {
     );
     let mut next_scan = std::time::Instant::now();
     while !shutdown.load(Ordering::Acquire) {
+        #[cfg(windows)]
+        match startup::take_stop_request() {
+            Ok(true) => {
+                println!("Per-user startup requested a graceful agent stop.");
+                break;
+            }
+            Ok(false) => {}
+            Err(error) => eprintln!("Could not check the startup stop request: {error:#}"),
+        }
+
         let now = std::time::Instant::now();
         if now >= next_scan {
             match agent.tick() {
@@ -1398,6 +1453,17 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_nested_startup_commands() {
+        let cli = Cli::try_parse_from(["open-hub-agent", "startup", "install"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(CliCommand::Startup {
+                action: StartupAction::Install
+            })
+        ));
+    }
 
     fn sample_device_state() -> protocol::DeviceState {
         protocol::DeviceState {
