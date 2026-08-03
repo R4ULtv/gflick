@@ -80,7 +80,11 @@ impl TrayApp {
         } else {
             self.offline_icon.clone()
         };
-        if let Err(error) = tray.set_icon(Some(icon)) {
+        #[cfg(target_os = "macos")]
+        let icon_result = tray.set_icon_with_as_template(Some(icon), true);
+        #[cfg(not(target_os = "macos"))]
+        let icon_result = tray.set_icon(Some(icon));
+        if let Err(error) = icon_result {
             self.last_error = Some(format!("Could not update tray icon: {error}"));
         }
         if let Err(error) = tray.set_tooltip(Some(self.state.tooltip())) {
