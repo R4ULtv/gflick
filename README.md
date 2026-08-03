@@ -20,6 +20,18 @@ currently a development, diagnostic, and hardware-validation CLI. Its command su
 may change as it is expanded into a more complete user-facing CLI or consolidated with
 another tool.
 
+## Early efficiency result
+
+In an initial 30-minute Windows process-counter comparison, Open Hub averaged `0.105%`
+of one CPU core and `7.58 MiB` of resident memory. The complete resident G Hub stack
+averaged `0.385%` of one core and `227.55 MiB`: Open Hub used 72.8% less target CPU,
+96.7% less resident memory, and more than 99.7% less recorded I/O. All 900 samples
+matched without a target process restart.
+
+This is a promising preliminary co-resident run, not a final electrical-power claim.
+The exact environment, raw metrics, observer overhead, limitations, and reproducible
+three-run procedure are documented in the [benchmark README](apps/bench/README.md).
+
 ## Workspace layout
 
 | Path | Purpose |

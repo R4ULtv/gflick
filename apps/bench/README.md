@@ -39,6 +39,74 @@ The default two-second interval captures accumulated CPU and I/O between samples
 does not lose CPU work that happens between samples. New matching processes are
 rediscovered every five seconds. Both values are stored in the report.
 
+## Initial Windows result
+
+An initial 30-minute comparison was recorded on August 3, 2026. It is a strong early
+result, but it is not yet the final isolated three-run benchmark described above.
+
+### Environment and scope
+
+| Item | Value |
+| --- | --- |
+| Operating system | Windows 10 Pro, build 19045, x86-64 |
+| Processor | AMD Ryzen 7 5700X, 8 cores / 16 logical processors |
+| Memory | 32 GB |
+| Warm-up | 120 seconds per recorder |
+| Recorded duration | 1,800 seconds per recorder |
+| Sample interval | 2 seconds |
+| Process rediscovery | 5 seconds |
+| Open Hub group | `open-hub-agent` |
+| G Hub group | `lghub_agent`, `lghub_system_tray`, `lghub_updater` |
+
+Open Hub recording began at 10:39:16 CEST and G Hub recording began at 10:43:22 CEST.
+The two recorders therefore overlapped for approximately 25 minutes 54 seconds. Both
+mouse stacks were resident during the measurements, and two recorder processes sampled
+concurrently for most of the test. The counters below still belong directly to their
+selected target processes, but this run should be described as a co-resident comparison,
+not an isolated sequential A/B test.
+
+### Target process results
+
+| Metric | Open Hub | G Hub | Open Hub / G Hub | Reduction |
+| --- | ---: | ---: | ---: | ---: |
+| Accumulated CPU time | 1,890 ms | 6,937 ms | 0.272x | 72.8% |
+| Average CPU, one-core basis | 0.1050% | 0.3854% | 0.272x | 72.8% |
+| Average CPU, whole-system basis | 0.006562% | 0.024087% | 0.272x | 72.8% |
+| CPU sample p95 | 0.8000% | 2.3512% | 0.340x | 66.0% |
+| CPU sample maximum | 1.6008% | 10.9055% | 0.147x | 85.3% |
+| Resident memory mean | 7.579 MiB | 227.550 MiB | 0.033x | 96.7% |
+| Resident memory p95 | 7.590 MiB | 231.418 MiB | 0.033x | 96.7% |
+| Virtual memory mean | 1.602 MiB | 287.534 MiB | 0.006x | 99.4% |
+| I/O read total | 24,140 bytes | 20,058,492 bytes | 0.001x | 99.9% |
+| I/O read rate | 13.411 bytes/s | 11,143.606 bytes/s | 0.001x | 99.9% |
+| I/O write total | 26,962 bytes | 11,877,360 bytes | 0.002x | 99.8% |
+| I/O write rate | 14.979 bytes/s | 6,598.533 bytes/s | 0.002x | 99.8% |
+| Resident process count | 1 | 3 | 0.333x | 66.7% |
+
+In this run G Hub used approximately 3.7 times as much target CPU time, 30 times as much
+resident memory, 831 times as much read I/O per second, and 441 times as much write I/O
+per second. The G Hub I/O values are Windows all-I/O process counters and should not be
+described as physical disk traffic alone.
+
+### Validity and observer overhead
+
+| Check | Open Hub run | G Hub run |
+| --- | ---: | ---: |
+| Matched samples | 900 / 900 | 900 / 900 |
+| Missing samples | 0 | 0 |
+| Target process start events | 0 | 0 |
+| System CPU mean | 8.83% | 8.28% |
+| System CPU p95 | 19.57% | 17.30% |
+| System CPU maximum | 66.20% | 52.98% |
+| Recorder CPU time | 12,984 ms | 12,734 ms |
+| Recorder CPU, one-core basis | 0.721% | 0.707% |
+
+Every requested target remained present and stable. Recorder overhead differed by about
+2%, which supports the fairness of the process-counter comparison. However, recorder
+CPU exceeded either target's CPU usage, and background system load was not perfectly
+quiet. These facts matter for whole-system energy testing even though recorder CPU is
+not included in the target CPU totals.
+
 ## Record Open Hub
 
 The installed agent must already be running. This command excludes two minutes of
