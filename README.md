@@ -103,7 +103,11 @@ local socket (a named pipe on Windows and a Unix-domain socket on macOS). HID ac
 remains serialized on the agent thread while client connections sleep independently.
 The intervals can be adjusted with `--scan-interval-seconds` and
 `--battery-interval-seconds`. Repeated HID failures discard and reopen a stale session,
-and graceful shutdown returns any software-controlled lighting to device firmware.
+and graceful shutdown returns any software-controlled lighting to device firmware. A
+wired mouse whose USB interface remains present while its power switch is off is exposed
+as unavailable and retried automatically. Temporary Windows enumeration passes that omit
+a receiver serial retain the previous routing identity instead of producing a false
+disconnect/reconnect pair.
 
 The normal monitoring agent persists preferences in a versioned per-user JSON file:
 

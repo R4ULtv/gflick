@@ -207,6 +207,8 @@ pub enum AgentEvent {
     },
     DeviceUnavailable {
         device_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason_code: Option<DeviceUnavailableReason>,
         reason: String,
     },
     SettingsChanged {
@@ -228,6 +230,24 @@ pub enum DeviceConnection {
     Receiver,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceUnavailableReason {
+    NotResponding,
+    CommunicationError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum DeviceAvailability {
+    Initializing,
+    Ready,
+    Unavailable {
+        reason: DeviceUnavailableReason,
+        detail: String,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceSummary {
     /// Session-scoped routing ID. It may include a USB-path hash and must not be used
@@ -243,6 +263,10 @@ pub struct DeviceSummary {
     pub serial_number: Option<String>,
     pub connection: DeviceConnection,
     pub device_index: u8,
+    /// Structured lifecycle state for new clients. `ready` remains available for
+    /// protocol-v1 clients that predate this additive field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub availability: Option<DeviceAvailability>,
     pub ready: bool,
 }
 
@@ -398,9 +422,34 @@ mod tests {
         }"#;
         let mut summary: DeviceSummary = serde_json::from_str(old_json).unwrap();
         assert_eq!(summary.hardware_id, None);
+        assert_eq!(summary.availability, None);
 
         summary.hardware_id = Some("046d:unit:1234abcd".to_owned());
+        summary.availability = Some(DeviceAvailability::Ready);
         let json = serde_json::to_string(&summary).unwrap();
         assert!(json.contains("\"hardware_id\":\"046d:unit:1234abcd\""));
+        assert!(json.contains("\"availability\":{\"state\":\"ready\"}"));
+    }
+
+    #[test]
+    fn unavailable_event_keeps_reason_code_backward_compatible() {
+        let old_json = r#"{
+            "message":"event",
+            "protocol_version":1,
+            "event":"device_unavailable",
+            "device_id":"mouse-1",
+            "reason":"timed out"
+        }"#;
+        let event: ServerMessage = serde_json::from_str(old_json).unwrap();
+        assert!(matches!(
+            event,
+            ServerMessage::Event {
+                event: AgentEvent::DeviceUnavailable {
+                    reason_code: None,
+                    ..
+                },
+                ..
+            }
+        ));
     }
 }

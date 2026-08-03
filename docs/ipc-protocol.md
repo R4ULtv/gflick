@@ -56,6 +56,19 @@ The field is additive and optional in protocol v1 so older recorded messages wit
 `hardware_id` still deserialize. A connected but not-yet-ready mouse reports no hardware
 identity until the agent can query it.
 
+`DeviceSummary` also carries an additive `availability` object while retaining the
+original `ready` boolean for protocol-v1 clients. Its states are:
+
+- `initializing`: the USB interface was just discovered and the first HID++ open is pending
+- `ready`: the mouse is open and its complete settings snapshot is available
+- `unavailable`: USB is still present, but the mouse is not responding or a later HID
+  operation failed; the object includes a structured reason and diagnostic detail
+
+An unavailable mouse may be asleep, switched off, or temporarily recovering from USB
+enumeration. The agent retries it on every discovery pass without repeating identical
+events. A successful retry emits `device_ready`; physical removal emits
+`device_disconnected`.
+
 ## Preference persistence
 
 The agent, not IPC clients, owns the per-user settings file. The first successful normal
@@ -81,8 +94,9 @@ A connection that sends `subscribe` becomes an event-only stream after receiving
 
 - `device_connected`: HID discovery found an interface; it may not yet be awake
 - `device_ready`: the agent opened the mouse and read its initial state
-- `device_unavailable`: three consecutive HID failures discarded a stale session;
-  the next discovery pass will try to reopen it
+- `device_unavailable`: an initial open failed or three consecutive HID failures
+  discarded a stale session; `reason_code` distinguishes `not_responding` from
+  `communication_error`, and the next discovery pass retries it
 - `device_disconnected`
 - `battery_changed`
 - `settings_changed`

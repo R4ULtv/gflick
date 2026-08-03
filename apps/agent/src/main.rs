@@ -63,9 +63,26 @@ struct ActiveMouse {
     lighting_controlled: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UnavailableDevice {
+    reason: protocol::DeviceUnavailableReason,
+    detail: String,
+    hardware_id: Option<String>,
+}
+
+impl UnavailableDevice {
+    fn availability(&self) -> protocol::DeviceAvailability {
+        protocol::DeviceAvailability::Unavailable {
+            reason: self.reason,
+            detail: self.detail.clone(),
+        }
+    }
+}
+
 struct Agent {
     manager: core::DeviceManager,
     active: BTreeMap<String, ActiveMouse>,
+    unavailable: BTreeMap<String, UnavailableDevice>,
     battery_interval: Duration,
     settings: store::SettingsStore,
     restore_preferences: bool,
@@ -80,6 +97,7 @@ impl Agent {
         Ok(Self {
             manager: core::DeviceManager::new()?,
             active: BTreeMap::new(),
+            unavailable: BTreeMap::new(),
             battery_interval,
             settings: store::SettingsStore::load(settings_path)?,
             restore_preferences,
@@ -177,6 +195,7 @@ impl Agent {
 
         for device in &changes.disconnected {
             self.active.remove(&device.id);
+            self.unavailable.remove(&device.id);
             println!("Disconnected: {}", device_label(device));
             events.push(protocol::AgentEvent::DeviceDisconnected {
                 device_id: device.id.clone(),
@@ -186,12 +205,12 @@ impl Agent {
         for device in &changes.connected {
             println!("Connected: {}", device_label(device));
             events.push(protocol::AgentEvent::DeviceConnected {
-                device: device_summary(device, false, None),
+                device: device_summary(device, protocol::DeviceAvailability::Initializing, None),
             });
         }
 
-        // A receiver may be present while its mouse is asleep. Retry unopened
-        // entries on later scans, but only report the initial failure once.
+        // A USB interface may remain present while a mouse is asleep or switched
+        // off. Keep retrying, but emit unavailable only when its reason changes.
         let candidates = self.manager.devices().to_vec();
         for device in candidates {
             if self.active.contains_key(&device.id) {
@@ -201,32 +220,32 @@ impl Agent {
             match self.manager.open(&device.id) {
                 Ok(mouse) => match self.prepare_mouse(&device, mouse) {
                     Ok((active, state)) => {
+                        self.unavailable.remove(&device.id);
                         events.push(protocol::AgentEvent::DeviceReady {
                             device: Box::new(state),
                         });
                         self.active.insert(device.id.clone(), active);
                     }
                     Err(error) => {
-                        if changes
-                            .connected
-                            .iter()
-                            .any(|connected| connected.id == device.id)
-                        {
-                            eprintln!(
-                                "Could not read initial state for {}: {error:#}",
-                                device_label(&device)
-                            );
-                        }
+                        self.mark_unavailable(
+                            &device.id,
+                            protocol::DeviceUnavailableReason::CommunicationError,
+                            format!("could not read mouse state: {error:#}"),
+                            None,
+                            &mut events,
+                        );
                     }
                 },
                 Err(error) => {
-                    if changes
-                        .connected
-                        .iter()
-                        .any(|connected| connected.id == device.id)
-                    {
-                        eprintln!("Could not open {}: {error:#}", device_label(&device));
-                    }
+                    self.mark_unavailable(
+                        &device.id,
+                        protocol::DeviceUnavailableReason::NotResponding,
+                        format!(
+                            "mouse is present but not responding; it may be asleep or switched off: {error:#}"
+                        ),
+                        None,
+                        &mut events,
+                    );
                 }
             }
         }
@@ -257,22 +276,49 @@ impl Agent {
                         active.battery_failures
                     );
                     if active.battery_failures >= 3 {
-                        unavailable.push((id.clone(), format!("{error:#}")));
+                        unavailable.push((
+                            id.clone(),
+                            format!("mouse stopped responding during a battery query: {error:#}"),
+                            active.hardware_id.clone(),
+                        ));
                     }
                 }
             }
             active.battery_check_after = now + self.battery_interval;
         }
 
-        for (id, reason) in unavailable {
+        for (id, detail, hardware_id) in unavailable {
             self.active.remove(&id);
-            events.push(protocol::AgentEvent::DeviceUnavailable {
-                device_id: id,
-                reason,
-            });
+            self.mark_unavailable(
+                &id,
+                protocol::DeviceUnavailableReason::CommunicationError,
+                detail,
+                hardware_id,
+                &mut events,
+            );
         }
 
         Ok(events)
+    }
+
+    fn mark_unavailable(
+        &mut self,
+        device_id: &str,
+        reason: protocol::DeviceUnavailableReason,
+        detail: String,
+        hardware_id: Option<String>,
+        events: &mut Vec<protocol::AgentEvent>,
+    ) {
+        if let Some(event) = record_unavailable(
+            &mut self.unavailable,
+            device_id,
+            reason,
+            detail.clone(),
+            hardware_id,
+        ) {
+            eprintln!("Unavailable [{device_id}]: {detail}");
+            events.push(event);
+        }
     }
 
     fn handle_request(&mut self, request: protocol::ClientRequest) -> protocol::ServerMessage {
@@ -298,10 +344,15 @@ impl Agent {
                 );
             }
             if !self.active.contains_key(device_id) {
+                let detail = self
+                    .unavailable
+                    .get(device_id)
+                    .map(|device| device.detail.as_str())
+                    .unwrap_or("device is still initializing");
                 return protocol::ServerMessage::error(
                     id,
                     protocol::ErrorCode::DeviceUnavailable,
-                    format!("device `{device_id}` is present but not ready"),
+                    format!("device `{device_id}` is present but not ready: {detail}"),
                 );
             }
         }
@@ -343,10 +394,22 @@ impl Agent {
                     .iter()
                     .map(|device| {
                         let active = self.active.get(&device.id);
+                        let unavailable = self.unavailable.get(&device.id);
+                        let availability = if active.is_some() {
+                            protocol::DeviceAvailability::Ready
+                        } else if let Some(unavailable) = unavailable {
+                            unavailable.availability()
+                        } else {
+                            protocol::DeviceAvailability::Initializing
+                        };
                         device_summary(
                             device,
-                            active.is_some(),
-                            active.and_then(|mouse| mouse.hardware_id.as_deref()),
+                            availability,
+                            active
+                                .and_then(|mouse| mouse.hardware_id.as_deref())
+                                .or_else(|| {
+                                    unavailable.and_then(|device| device.hardware_id.as_deref())
+                                }),
                         )
                     })
                     .collect(),
@@ -504,6 +567,33 @@ impl Agent {
             }
         }
     }
+}
+
+fn record_unavailable(
+    unavailable: &mut BTreeMap<String, UnavailableDevice>,
+    device_id: &str,
+    reason: protocol::DeviceUnavailableReason,
+    detail: String,
+    hardware_id: Option<String>,
+) -> Option<protocol::AgentEvent> {
+    let previous = unavailable.get(device_id);
+    let changed = previous.is_none_or(|previous| previous.reason != reason);
+    let hardware_id = hardware_id
+        .or_else(|| previous.and_then(|previous| previous.hardware_id.as_ref().cloned()));
+    unavailable.insert(
+        device_id.to_owned(),
+        UnavailableDevice {
+            reason,
+            detail: detail.clone(),
+            hardware_id,
+        },
+    );
+
+    changed.then(|| protocol::AgentEvent::DeviceUnavailable {
+        device_id: device_id.to_owned(),
+        reason_code: Some(reason),
+        reason: detail,
+    })
 }
 
 fn capture_device_preferences(
@@ -914,7 +1004,7 @@ fn device_state(
 ) -> Result<protocol::DeviceState> {
     let settings = settings.map_or_else(|| mouse.settings(), Ok)?;
     Ok(protocol::DeviceState {
-        device: device_summary(device, true, hardware_id),
+        device: device_summary(device, protocol::DeviceAvailability::Ready, hardware_id),
         capabilities: capabilities_state(capabilities.clone()),
         settings: settings_state(settings),
     })
@@ -922,9 +1012,10 @@ fn device_state(
 
 fn device_summary(
     device: &core::ManagedDevice,
-    ready: bool,
+    availability: protocol::DeviceAvailability,
     hardware_id: Option<&str>,
 ) -> protocol::DeviceSummary {
+    let ready = matches!(availability, protocol::DeviceAvailability::Ready);
     protocol::DeviceSummary {
         id: device.id.clone(),
         hardware_id: hardware_id.map(str::to_owned),
@@ -937,6 +1028,7 @@ fn device_summary(
             core::DeviceConnection::Receiver => protocol::DeviceConnection::Receiver,
         },
         device_index: device.device_index,
+        availability: Some(availability),
         ready,
     }
 }
@@ -1318,6 +1410,7 @@ mod tests {
                 serial_number: None,
                 connection: protocol::DeviceConnection::Receiver,
                 device_index: 1,
+                availability: Some(protocol::DeviceAvailability::Ready),
                 ready: true,
             },
             capabilities: protocol::DeviceCapabilities {
@@ -1439,5 +1532,49 @@ mod tests {
             Some(store::ControlPreference::Onboard { profile: 1 })
         );
         assert_eq!(preferences.host, saved_host);
+    }
+
+    #[test]
+    fn unavailable_transition_is_emitted_once_until_device_recovers() {
+        let mut unavailable = BTreeMap::new();
+        let first = record_unavailable(
+            &mut unavailable,
+            "mouse-1",
+            protocol::DeviceUnavailableReason::NotResponding,
+            "mouse may be switched off".to_owned(),
+            Some("hardware-1".to_owned()),
+        );
+        assert!(matches!(
+            first,
+            Some(protocol::AgentEvent::DeviceUnavailable {
+                reason_code: Some(protocol::DeviceUnavailableReason::NotResponding),
+                ..
+            })
+        ));
+
+        let retry = record_unavailable(
+            &mut unavailable,
+            "mouse-1",
+            protocol::DeviceUnavailableReason::NotResponding,
+            "second timeout".to_owned(),
+            None,
+        );
+        assert_eq!(retry, None);
+        assert_eq!(unavailable["mouse-1"].detail, "second timeout");
+        assert_eq!(
+            unavailable["mouse-1"].hardware_id.as_deref(),
+            Some("hardware-1")
+        );
+
+        // A successful open removes the unavailable marker and emits DeviceReady.
+        assert!(unavailable.remove("mouse-1").is_some());
+        let after_recovery = record_unavailable(
+            &mut unavailable,
+            "mouse-1",
+            protocol::DeviceUnavailableReason::CommunicationError,
+            "new failure after recovery".to_owned(),
+            Some("hardware-1".to_owned()),
+        );
+        assert!(after_recovery.is_some());
     }
 }

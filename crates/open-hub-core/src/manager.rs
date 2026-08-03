@@ -64,7 +64,9 @@ impl DeviceManager {
     }
 
     pub fn refresh(&mut self) -> Result<&[ManagedDevice]> {
-        self.devices = self.scan_devices()?;
+        let mut current = self.scan_devices()?;
+        reconcile_transient_identities(&self.devices, &mut current);
+        self.devices = current;
         Ok(&self.devices)
     }
 
@@ -72,7 +74,8 @@ impl DeviceManager {
     /// disappeared since the previous refresh.
     pub fn refresh_with_changes(&mut self) -> Result<DeviceChanges> {
         let previous = self.devices.clone();
-        let current = self.scan_devices()?;
+        let mut current = self.scan_devices()?;
+        reconcile_transient_identities(&previous, &mut current);
         let changes = diff_devices(&previous, &current);
         self.devices = current;
         Ok(changes)
@@ -152,6 +155,47 @@ impl DeviceManager {
     }
 }
 
+/// Windows can briefly enumerate the same HID interface without its USB serial while
+/// a receiver is settling. Preserve the prior serial-backed routing ID when the HID
+/// path still matches, or when there is exactly one unambiguous device of that type.
+/// The HID++ unit ID remains the only identity used for persisted preferences.
+fn reconcile_transient_identities(previous: &[ManagedDevice], current: &mut [ManagedDevice]) {
+    for index in 0..current.len() {
+        let device = &current[index];
+        if device.serial_number.is_some() {
+            continue;
+        }
+        let exact_path = previous.iter().find(|old| {
+            old.serial_number.is_some()
+                && same_managed_kind(old, device)
+                && old.short_path == device.short_path
+        });
+        let matched = exact_path.or_else(|| {
+            let previous_matches = previous
+                .iter()
+                .filter(|old| old.serial_number.is_some() && same_managed_kind(old, device))
+                .collect::<Vec<_>>();
+            let current_matches = current
+                .iter()
+                .filter(|candidate| same_managed_kind(candidate, device))
+                .count();
+            (previous_matches.len() == 1 && current_matches == 1).then_some(previous_matches[0])
+        });
+
+        if let Some(old) = matched {
+            current[index].id.clone_from(&old.id);
+            current[index].serial_number.clone_from(&old.serial_number);
+        }
+    }
+}
+
+fn same_managed_kind(left: &ManagedDevice, right: &ManagedDevice) -> bool {
+    left.vendor_id == right.vendor_id
+        && left.product_id == right.product_id
+        && left.connection == right.connection
+        && left.device_index == right.device_index
+}
+
 fn diff_devices(previous: &[ManagedDevice], current: &[ManagedDevice]) -> DeviceChanges {
     DeviceChanges {
         connected: current
@@ -205,15 +249,19 @@ mod tests {
     use super::*;
 
     fn managed_device(id: &str) -> ManagedDevice {
+        managed_device_with(id, None, &format!("short-{id}"))
+    }
+
+    fn managed_device_with(id: &str, serial: Option<&str>, path: &str) -> ManagedDevice {
         ManagedDevice {
             id: id.to_owned(),
             vendor_id: LOGITECH_VENDOR_ID,
             product_id: 0xc094,
             product_name: Some("Test Mouse".to_owned()),
-            serial_number: None,
+            serial_number: serial.map(str::to_owned),
             connection: DeviceConnection::DirectUsb,
             device_index: 0xff,
-            short_path: CString::new(format!("short-{id}")).unwrap(),
+            short_path: CString::new(path).unwrap(),
             long_path: None,
         }
     }
@@ -249,5 +297,39 @@ mod tests {
         );
         assert!(!changes.is_empty());
         assert!(diff_devices(&current, &current).is_empty());
+    }
+
+    #[test]
+    fn preserves_serial_identity_when_enumeration_temporarily_omits_it() {
+        let previous = [managed_device_with(
+            "046d:c54d:SERIAL:01",
+            Some("SERIAL"),
+            "same-path",
+        )];
+        let mut current = [managed_device_with(
+            "046d:c54d:path-deadbeef:01",
+            None,
+            "same-path",
+        )];
+
+        reconcile_transient_identities(&previous, &mut current);
+
+        assert_eq!(current[0].id, previous[0].id);
+        assert_eq!(current[0].serial_number, previous[0].serial_number);
+        assert!(diff_devices(&previous, &current).is_empty());
+    }
+
+    #[test]
+    fn does_not_guess_between_multiple_serial_devices() {
+        let previous = [
+            managed_device_with("first", Some("FIRST"), "first-path"),
+            managed_device_with("second", Some("SECOND"), "second-path"),
+        ];
+        let mut current = [managed_device_with("fallback", None, "new-path")];
+
+        reconcile_transient_identities(&previous, &mut current);
+
+        assert_eq!(current[0].id, "fallback");
+        assert_eq!(current[0].serial_number, None);
     }
 }
