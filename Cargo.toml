@@ -1,5 +1,11 @@
 [workspace]
-members = ["apps/agent", "apps/probe", "crates/open-hub-core", "crates/open-hub-protocol"]
+members = [
+    "apps/agent",
+    "apps/bench",
+    "apps/probe",
+    "crates/open-hub-core",
+    "crates/open-hub-protocol",
+]
 resolver = "3"
 
 [workspace.package]
@@ -24,4 +30,5 @@ open-hub-core = { path = "crates/open-hub-core" }
 open-hub-protocol = { path = "crates/open-hub-protocol" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+sysinfo = { version = "0.36.1", default-features = false, features = ["system"] }
 tempfile = "3.20.0"
