@@ -173,6 +173,15 @@ background process policy, `RunAtLoad`, and `KeepAlive`. Standard output and err
 written under `~/Library/Logs/open-hub/`. The same status and uninstall commands use the
 current user's `launchd` GUI domain.
 
+Monitor the installed Windows agent's live CPU, memory, I/O, thread, and handle usage:
+
+```powershell
+./scripts/monitor-agent.ps1
+```
+
+Press `Ctrl+C` to stop. Use `-Once` for one sample or
+`-SampleIntervalSeconds <SECONDS>` to change the refresh interval.
+
 ## Use the probe
 
 First list the Logitech HID interfaces:
