@@ -274,6 +274,35 @@ mod tests {
         assert!(tray.statuses().is_empty());
     }
 
+    #[test]
+    fn unavailable_mouse_never_displays_stale_values() {
+        let state = sample_state();
+        let id = state.device.id.clone();
+        let mut tray = TrayState::default();
+        tray.replace(vec![(state.device.clone(), Some(state))]);
+        tray.apply(AgentEvent::DeviceUnavailable {
+            device_id: id,
+            reason_code: Some(open_hub_protocol::DeviceUnavailableReason::NotResponding),
+            reason: "wireless link disconnected".to_owned(),
+        });
+
+        assert_eq!(tray.title(), "Unavailable");
+        assert_eq!(tray.statuses()[0].battery, "Battery: unavailable");
+        assert_eq!(tray.statuses()[0].dpi, "DPI: unavailable");
+    }
+
+    #[test]
+    fn disconnected_mouse_is_removed_immediately() {
+        let state = sample_state();
+        let id = state.device.id.clone();
+        let mut tray = TrayState::default();
+        tray.replace(vec![(state.device.clone(), Some(state))]);
+        tray.apply(AgentEvent::DeviceDisconnected { device_id: id });
+
+        assert_eq!(tray.title(), "No mouse");
+        assert!(tray.statuses().is_empty());
+    }
+
     fn sample_state() -> DeviceState {
         DeviceState {
             device: DeviceSummary {

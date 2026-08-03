@@ -11,6 +11,7 @@ pub use mouse::{
 
 use std::{
     fmt,
+    sync::Mutex,
     time::{Duration, Instant},
 };
 
@@ -31,6 +32,7 @@ pub const FEATURE_SET: u16 = 0x0001;
 pub const FEATURE_DEVICE_INFORMATION: u16 = 0x0003;
 pub const FEATURE_DEVICE_TYPE_AND_NAME: u16 = 0x0005;
 pub const FEATURE_UNIFIED_BATTERY: u16 = 0x1004;
+pub const FEATURE_WIRELESS_DEVICE_STATUS: u16 = 0x1d4b;
 pub const FEATURE_ADJUSTABLE_DPI: u16 = 0x2201;
 pub const FEATURE_EXTENDED_ADJUSTABLE_DPI: u16 = 0x2202;
 pub const FEATURE_REPORT_RATE: u16 = 0x8060;
@@ -52,6 +54,13 @@ pub struct FeatureInfo {
     pub index: u8,
     pub flags: u8,
     pub version: u8,
+}
+
+/// The latest connection state reported asynchronously by a mouse or receiver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceLinkStatus {
+    Connected,
+    Disconnected,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -951,6 +960,13 @@ pub struct HidppSession {
     long_device: Option<HidDevice>,
     device_index: u8,
     timeout: Duration,
+    link_notifications: Mutex<LinkNotifications>,
+}
+
+#[derive(Debug, Default)]
+struct LinkNotifications {
+    wireless_status_feature_index: Option<u8>,
+    pending: Option<DeviceLinkStatus>,
 }
 
 impl HidppSession {
@@ -965,7 +981,27 @@ impl HidppSession {
             long_device,
             device_index,
             timeout,
+            link_notifications: Mutex::new(LinkNotifications::default()),
         }
+    }
+
+    pub(crate) fn set_wireless_status_feature(&self, feature: Option<FeatureInfo>) {
+        self.link_notifications
+            .lock()
+            .expect("HID++ link-notification mutex poisoned")
+            .wireless_status_feature_index = feature.map(|feature| feature.index);
+    }
+
+    /// Drains already-buffered HID++ input without sending a device request and
+    /// returns the newest asynchronous connection state, if one was reported.
+    pub fn poll_link_status(&self) -> Result<Option<DeviceLinkStatus>> {
+        self.drain_input()?;
+        Ok(self
+            .link_notifications
+            .lock()
+            .expect("HID++ link-notification mutex poisoned")
+            .pending
+            .take())
     }
 
     pub fn protocol_version(&self) -> Result<ProtocolVersion> {
@@ -1651,16 +1687,44 @@ impl HidppSession {
             if frame[2] == feature_index && frame[3] == function_and_software_id {
                 return Ok(frame[4..].to_vec());
             }
+
+            self.capture_link_notification(frame);
         }
     }
 
     fn drain_input(&self) -> Result<()> {
         let mut input = [0_u8; 64];
-        drain_device(&self.short_device, &mut input)?;
+        self.drain_device(&self.short_device, &mut input)?;
         if let Some(long_device) = &self.long_device {
-            drain_device(long_device, &mut input)?;
+            self.drain_device(long_device, &mut input)?;
         }
         Ok(())
+    }
+
+    fn drain_device(&self, device: &HidDevice, input: &mut [u8]) -> Result<()> {
+        loop {
+            let read = device
+                .read_timeout(input, 0)
+                .context("failed while draining stale HID input")?;
+            if read == 0 {
+                return Ok(());
+            }
+            self.capture_link_notification(&input[..read]);
+        }
+    }
+
+    fn capture_link_notification(&self, frame: &[u8]) {
+        let mut notifications = self
+            .link_notifications
+            .lock()
+            .expect("HID++ link-notification mutex poisoned");
+        if let Some(status) = parse_link_notification(
+            frame,
+            self.device_index,
+            notifications.wireless_status_feature_index,
+        ) {
+            notifications.pending = Some(status);
+        }
     }
 
     fn read_next(&self, input: &mut [u8], remaining_ms: i32) -> Result<usize> {
@@ -1735,14 +1799,41 @@ fn parse_color_led_effect_settings(response: &[u8]) -> Result<ColorLedEffectSett
     })
 }
 
-fn drain_device(device: &HidDevice, input: &mut [u8]) -> Result<()> {
-    loop {
-        let read = device
-            .read_timeout(input, 0)
-            .context("failed while draining stale HID input")?;
-        if read == 0 {
-            return Ok(());
+fn parse_link_notification(
+    frame: &[u8],
+    device_index: u8,
+    wireless_status_feature_index: Option<u8>,
+) -> Option<DeviceLinkStatus> {
+    if frame.len() < 5
+        || !matches!(frame[0], SHORT_REPORT_ID | LONG_REPORT_ID)
+        || frame[1] != device_index
+    {
+        return None;
+    }
+
+    match frame[2] {
+        // HID++ 1.0 receiver device-disconnection notification. The first
+        // register byte identifies the disconnect event as 0x02.
+        0x40 if frame[3] == 0x02 => Some(DeviceLinkStatus::Disconnected),
+        // HID++ 1.0 receiver device-connection notification. Bit 6 means the
+        // wireless link was not established / the device is out of range.
+        0x41 => Some(link_status_from_flags(frame[4])),
+        feature_index
+            if Some(feature_index) == wireless_status_feature_index && frame[3] & 0x0f == 0 =>
+        {
+            // HID++ 2.0 Wireless Device Status (0x1d4b) event. Notifications
+            // use software ID zero and the same link-established flag.
+            Some(link_status_from_flags(frame[4]))
         }
+        _ => None,
+    }
+}
+
+fn link_status_from_flags(flags: u8) -> DeviceLinkStatus {
+    if flags & 0x40 == 0 {
+        DeviceLinkStatus::Connected
+    } else {
+        DeviceLinkStatus::Disconnected
     }
 }
 
@@ -2087,6 +2178,50 @@ mod tests {
     fn encodes_short_get_feature_request() {
         let report = encode_request(1, 0, 0x0c, &[0x10, 0x04]).unwrap();
         assert_eq!(report, [0x10, 0x01, 0x00, 0x0c, 0x10, 0x04, 0x00]);
+    }
+
+    #[test]
+    fn parses_hidpp1_receiver_link_notifications() {
+        assert_eq!(
+            parse_link_notification(&[0x10, 0x01, 0x40, 0x02, 0, 0, 0], 0x01, None),
+            Some(DeviceLinkStatus::Disconnected)
+        );
+        assert_eq!(
+            parse_link_notification(&[0x10, 0x01, 0x41, 0, 0x00, 0, 0], 0x01, None),
+            Some(DeviceLinkStatus::Connected)
+        );
+        assert_eq!(
+            parse_link_notification(&[0x10, 0x01, 0x41, 0, 0x40, 0, 0], 0x01, None),
+            Some(DeviceLinkStatus::Disconnected)
+        );
+    }
+
+    #[test]
+    fn parses_hidpp2_wireless_status_notifications() {
+        assert_eq!(
+            parse_link_notification(&[0x10, 0x01, 0x04, 0x00, 0x40, 0, 0], 0x01, Some(0x04)),
+            Some(DeviceLinkStatus::Disconnected)
+        );
+        assert_eq!(
+            parse_link_notification(&[0x10, 0x01, 0x04, 0x10, 0x00, 0, 0], 0x01, Some(0x04)),
+            Some(DeviceLinkStatus::Connected)
+        );
+    }
+
+    #[test]
+    fn ignores_unrelated_or_other_device_link_frames() {
+        assert_eq!(
+            parse_link_notification(&[0x10, 0x02, 0x04, 0x00, 0x40, 0, 0], 0x01, Some(0x04)),
+            None
+        );
+        assert_eq!(
+            parse_link_notification(&[0x10, 0x01, 0x05, 0x00, 0x40, 0, 0], 0x01, Some(0x04)),
+            None
+        );
+        assert_eq!(
+            parse_link_notification(&[0x10, 0x01, 0x04, 0x0c, 0x40, 0, 0], 0x01, Some(0x04)),
+            None
+        );
     }
 
     #[test]

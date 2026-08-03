@@ -266,11 +266,40 @@ impl Agent {
             });
         }
 
+        // Receivers remain enumerated when a wireless mouse is switched off or
+        // goes out of range. Consume buffered HID++ link events before retrying
+        // unavailable devices; this performs no request and does not wake mice.
+        let mut link_disconnected = Vec::new();
+        for (id, active) in &self.active {
+            match active.mouse.poll_link_status() {
+                Ok(Some(core::DeviceLinkStatus::Disconnected)) => {
+                    link_disconnected.push((id.clone(), active.hardware_id.clone()));
+                }
+                Ok(Some(core::DeviceLinkStatus::Connected) | None) => {}
+                Err(error) => {
+                    eprintln!("Could not read buffered link status [{id}]: {error:#}");
+                }
+            }
+        }
+        for (id, hardware_id) in &link_disconnected {
+            self.active.remove(id);
+            self.mark_unavailable(
+                id,
+                protocol::DeviceUnavailableReason::NotResponding,
+                "wireless link disconnected; mouse may be asleep, switched off, or out of range"
+                    .to_owned(),
+                hardware_id.clone(),
+                &mut events,
+            );
+        }
+
         // A USB interface may remain present while a mouse is asleep or switched
         // off. Keep retrying, but emit unavailable only when its reason changes.
         let candidates = self.manager.devices().to_vec();
         for device in candidates {
-            if self.active.contains_key(&device.id) {
+            if self.active.contains_key(&device.id)
+                || link_disconnected.iter().any(|(id, _)| id == &device.id)
+            {
                 continue;
             }
 

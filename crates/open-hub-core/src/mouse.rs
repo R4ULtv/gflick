@@ -2,15 +2,16 @@ use anyhow::{Context, Result, bail};
 
 use crate::{
     BatteryInfo, BunnyHoppingInfo, ColorLedEffect, ColorLedEffectSettings, ColorLedState,
-    ConfigurationSource, ConnectionType, DeviceMetadata, DpiInfo, FEATURE_ADJUSTABLE_DPI,
-    FEATURE_BATTERY_STATUS, FEATURE_BUNNY_HOPPING, FEATURE_COLOR_LED_EFFECTS,
-    FEATURE_DEVICE_INFORMATION, FEATURE_DEVICE_TYPE_AND_NAME, FEATURE_EXTENDED_ADJUSTABLE_DPI,
-    FEATURE_EXTENDED_REPORT_RATE, FEATURE_MODE_STATUS, FEATURE_MOUSE_BUTTON_FILTER,
-    FEATURE_ONBOARD_PROFILES, FEATURE_REPORT_RATE, FEATURE_UNIFIED_BATTERY, FeatureInfo,
-    FeatureSetEntry, HidppSession, LiftOffDistance, ModeStatusInfo, MouseButtonFilterInfo,
-    OnboardButtonBinding, OnboardDpiStage, OnboardProfile, OnboardProfileDirectoryEntry,
-    OnboardProfileEdit, OnboardProfileEditProof, OnboardProfileWriteProof,
-    OnboardProfilesDescription, OperatingMode, RgbColor, SurfaceMode,
+    ConfigurationSource, ConnectionType, DeviceLinkStatus, DeviceMetadata, DpiInfo,
+    FEATURE_ADJUSTABLE_DPI, FEATURE_BATTERY_STATUS, FEATURE_BUNNY_HOPPING,
+    FEATURE_COLOR_LED_EFFECTS, FEATURE_DEVICE_INFORMATION, FEATURE_DEVICE_TYPE_AND_NAME,
+    FEATURE_EXTENDED_ADJUSTABLE_DPI, FEATURE_EXTENDED_REPORT_RATE, FEATURE_MODE_STATUS,
+    FEATURE_MOUSE_BUTTON_FILTER, FEATURE_ONBOARD_PROFILES, FEATURE_REPORT_RATE,
+    FEATURE_UNIFIED_BATTERY, FEATURE_WIRELESS_DEVICE_STATUS, FeatureInfo, FeatureSetEntry,
+    HidppSession, LiftOffDistance, ModeStatusInfo, MouseButtonFilterInfo, OnboardButtonBinding,
+    OnboardDpiStage, OnboardProfile, OnboardProfileDirectoryEntry, OnboardProfileEdit,
+    OnboardProfileEditProof, OnboardProfileWriteProof, OnboardProfilesDescription, OperatingMode,
+    RgbColor, SurfaceMode,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +89,8 @@ pub struct MouseDevice {
 
 impl MouseDevice {
     pub fn discover(session: HidppSession) -> Result<Self> {
+        let wireless_device_status = session.feature(FEATURE_WIRELESS_DEVICE_STATUS)?;
+        session.set_wireless_status_feature(wireless_device_status);
         let features = MouseFeatures {
             device_information: session.feature(FEATURE_DEVICE_INFORMATION)?,
             device_type_and_name: session.feature(FEATURE_DEVICE_TYPE_AND_NAME)?,
@@ -110,6 +113,11 @@ impl MouseDevice {
 
     pub fn session(&self) -> &HidppSession {
         &self.session
+    }
+
+    /// Reads buffered connection notifications without transmitting to the mouse.
+    pub fn poll_link_status(&self) -> Result<Option<DeviceLinkStatus>> {
+        self.session.poll_link_status()
     }
 
     pub fn feature_set(&self) -> Result<Vec<FeatureSetEntry>> {
