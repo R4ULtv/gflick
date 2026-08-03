@@ -26,6 +26,11 @@ Supported read operations are `ping`, `list_devices`, and `get_device`. A device
 snapshot includes identity, readiness, advertised capabilities, battery, DPI, polling,
 configuration source, operating/surface modes, and BHOP.
 
+The lifecycle operation `shutdown` acknowledges an application-wide graceful shutdown
+and then broadcasts `application_shutting_down`. The tray and any future settings UI
+must close on that event. This lets the separate components behave as one application
+without coupling UI code to the HID process.
+
 Supported live-setting operations are:
 
 - `set_dpi`
@@ -52,9 +57,14 @@ Each device summary contains two different identities:
   paths, and wired/wireless transport. Persisted preferences must use this value and
   must never fall back to the routing ID.
 
-The field is additive and optional in protocol v1 so older recorded messages without a
-`hardware_id` still deserialize. A connected but not-yet-ready mouse reports no hardware
-identity until the agent can query it.
+`hardware_id` is additive and optional in protocol v1 so older recorded messages without
+it still deserialize. A connected but not-yet-ready mouse reports no hardware identity
+until the agent can query it.
+
+`display_name` is a separate additive optional field containing the model name reported
+by the mouse through HID++. Some firmware does not expose it, particularly when connected
+through a receiver. Clients must then fall back to the USB `product_name` and must not
+guess a model from a receiver product ID.
 
 `DeviceSummary` also carries an additive `availability` object while retaining the
 original `ready` boolean for protocol-v1 clients. Its states are:
@@ -122,6 +132,7 @@ workflow has explicit confirmation and recovery design. The local endpoint is no
 an authentication boundary; production Windows service packaging must apply a
 per-user named-pipe ACL.
 
-On graceful Ctrl+C shutdown, the agent returns LED ownership to firmware for every
-mouse whose lighting it controlled. A crash or forced process termination cannot run
-that cleanup, so the eventual OS service wrapper must prefer graceful stop signals.
+On any graceful shutdown, including `shutdown`, Ctrl+C, or startup uninstallation, the
+agent returns LED ownership to firmware for every mouse whose lighting it controlled.
+A crash or forced process termination cannot run that cleanup, so application lifecycle
+controls must always prefer the graceful IPC command or stop signal.

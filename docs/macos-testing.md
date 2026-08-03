@@ -39,8 +39,24 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Record the Apple Silicon model, architecture, and macOS version. Both the core and the
-two command-line applications must build without platform-specific source changes.
+Record the Apple Silicon model, architecture, and macOS version. The core, typed IPC
+client, command-line applications, and native tray must build without platform-specific
+source changes.
+
+### Menu-bar validation
+
+With the installed agent ready, launch the release tray:
+
+```bash
+./target/release/open-hub-tray
+```
+
+Confirm that it runs as an accessory/menu-bar application without a Dock icon. Its title
+and menu must show the current battery and DPI, update after a reversible DPI change,
+represent agent shutdown/restart without stale values, and reconnect automatically.
+Record a settled 60-second CPU, RSS, thread, and wake-up baseline. `Quit Open Hub` must
+gracefully stop both the tray and agent, and launchd must not restart either component
+until the next login or explicit startup installation.
 
 ### Per-user LaunchAgent validation
 
@@ -53,10 +69,13 @@ write checks:
 launchctl print "gui/$(id -u)/io.github.r4ultv.open-hub.agent"
 ```
 
-Confirm that the installed executable is under
-`~/Library/Application Support/open-hub/bin`, the plist is under
-`~/Library/LaunchAgents`, and the agent becomes ready through its normal IPC endpoint.
-Log out and back in once to verify automatic login startup. Then verify graceful
+Confirm that the agent is under `~/Library/Application Support/open-hub/bin`, the tray
+is installed as `~/Library/Application Support/open-hub/Open Hub.app`, and the plist is
+under `~/Library/LaunchAgents`. Finder must recognize the bundle's full-color ICNS icon,
+while the menu bar must render the transparent template cleanly in both light and dark
+appearances. Both the agent and menu-bar item must start automatically, and the agent
+must become ready through its normal IPC endpoint. Log out and back in once to verify
+automatic login startup. Then verify graceful
 unregistration and reinstall it for continued testing:
 
 ```bash
@@ -66,8 +85,8 @@ unregistration and reinstall it for continued testing:
 ```
 
 Inspect `~/Library/Logs/open-hub/agent.log` and `agent-error.log` for launch-only
-failures. The uninstall status must report no plist, no installed executable, and no
-loaded launchd job.
+failures. The uninstall status must report no plist, no installed agent or tray
+executable, and no loaded launchd job.
 
 ## 2. HID discovery
 

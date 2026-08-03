@@ -37,8 +37,10 @@ three-run procedure are documented in the [benchmark README](apps/bench/README.m
 | Path | Purpose |
 | --- | --- |
 | `crates/open-hub-core` | HID/HID++ transport, discovery, capability models, settings, and onboard-profile APIs |
+| `crates/open-hub-client` | Typed synchronous client for requests and event subscriptions over local IPC |
 | `crates/open-hub-protocol` | Versioned serializable requests, responses, snapshots, and events for local IPC clients |
 | `apps/agent` | `open-hub-agent`, the device owner, monitor, settings store, and local IPC server |
+| `apps/tray` | `open-hub-tray`, the native Windows notification-area and macOS menu-bar status client |
 | `apps/probe` | `open-hub-probe`, the experimental diagnostic and configuration CLI |
 | `apps/bench` | `open-hub-bench`, a development utility for recording and comparing resident-process resource usage |
 | `docs` | Protocol, feature coverage, platform validation, and other project documentation |
@@ -46,8 +48,8 @@ three-run procedure are documented in the [benchmark README](apps/bench/README.m
 In normal use, the data flow is:
 
 ```text
-Logitech mouse -> HID/HID++ -> open-hub-core -> open-hub-agent -> local client
-                                      \-> open-hub-probe (development tool)
+Logitech mouse -> HID/HID++ -> open-hub-core -> open-hub-agent -> open-hub-client
+                                      \-> open-hub-probe          \-> open-hub-tray
 ```
 
 ## What it can do
@@ -100,11 +102,34 @@ cargo run -p open-hub-agent
 
 The agent periodically discovers devices, keeps opened mouse sessions owned by one
 thread, refreshes battery state, persists per-user preferences, and serves protocol
-version 1 over an OS-local socket. It can also be installed for per-user startup with
-the `startup` subcommands. Run `cargo run -p open-hub-agent -- --help` for all modes.
+version 1 over an OS-local socket. Build both user-facing components and install them
+together for per-user startup:
+
+```sh
+cargo build --release -p open-hub-agent -p open-hub-tray
+./target/release/open-hub-agent startup install
+```
+
+Login starts both the agent and tray. `Quit Open Hub` in the tray gracefully stops the
+entire application; the separate processes are an internal implementation detail. Run
+`cargo run -p open-hub-agent -- --help` for all agent modes.
 
 The [IPC protocol documentation](docs/ipc-protocol.md) covers message formats,
 events, persistence, and safety boundaries.
+
+## Run the tray status app
+
+With the agent running, build and launch the native tray companion:
+
+```sh
+cargo build --release -p open-hub-tray
+./target/release/open-hub-tray
+```
+
+It shows agent connectivity, current battery and DPI for every connected mouse. The
+tray subscribes to IPC events and sleeps between changes; it does not access HID or poll
+the agent continuously. See the [tray README](apps/tray/README.md) for platform behavior
+and the initial Windows idle measurement.
 
 ## Inspect hardware with the probe
 
