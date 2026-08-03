@@ -57,7 +57,7 @@ struct Cli {
     #[arg(long, requires = "events")]
     event_count: Option<usize>,
 
-    /// Internal Windows login launcher that detaches the real agent.
+    /// Internal Windows login launcher that starts the agent and tray together.
     #[cfg(windows)]
     #[arg(long, hide = true)]
     launch_background: bool,
@@ -66,6 +66,11 @@ struct Cli {
     #[cfg(windows)]
     #[arg(long, hide = true)]
     background_worker: bool,
+
+    /// Internal macOS login mode that starts the tray before running the agent.
+    #[cfg(target_os = "macos")]
+    #[arg(long, hide = true)]
+    launch_tray: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -79,9 +84,9 @@ enum CliCommand {
 
 #[derive(Debug, Clone, Copy, Subcommand)]
 enum StartupAction {
-    /// Install this build and start it automatically at login.
+    /// Install the agent and sibling tray, then start both automatically at login.
     Install,
-    /// Remove automatic startup and the installed agent binary.
+    /// Remove automatic startup and both installed binaries.
     Uninstall,
     /// Show the current per-user startup registration.
     Status,
@@ -90,6 +95,7 @@ enum StartupAction {
 struct ActiveMouse {
     mouse: core::MouseDevice,
     hardware_id: Option<String>,
+    display_name: Option<String>,
     capabilities: core::DeviceCapabilities,
     battery: Option<core::BatteryInfo>,
     battery_check_after: std::time::Instant,
@@ -155,6 +161,16 @@ impl Agent {
                 None
             }
         };
+        let display_name = match mouse.name() {
+            Ok(name) => name,
+            Err(error) => {
+                eprintln!(
+                    "Could not read device name for {}: {error:#}",
+                    device_label(device)
+                );
+                None
+            }
+        };
         let mut lighting_controlled = false;
 
         if self.restore_preferences {
@@ -208,12 +224,14 @@ impl Agent {
             device,
             &mouse,
             hardware_id.as_deref(),
+            display_name.as_deref(),
             &capabilities,
             Some(settings.clone()),
         )?;
         let active = ActiveMouse {
             mouse,
             hardware_id,
+            display_name,
             capabilities,
             battery: settings.battery,
             battery_check_after: std::time::Instant::now() + self.battery_interval,
@@ -239,7 +257,12 @@ impl Agent {
         for device in &changes.connected {
             println!("Connected: {}", device_label(device));
             events.push(protocol::AgentEvent::DeviceConnected {
-                device: device_summary(device, protocol::DeviceAvailability::Initializing, None),
+                device: device_summary(
+                    device,
+                    protocol::DeviceAvailability::Initializing,
+                    None,
+                    None,
+                ),
             });
         }
 
@@ -421,6 +444,7 @@ impl Agent {
 
         match command {
             RequestCommand::Ping => Ok(protocol::ResponseData::Pong),
+            RequestCommand::Shutdown => Ok(protocol::ResponseData::Acknowledged),
             RequestCommand::ListDevices => Ok(protocol::ResponseData::Devices {
                 devices: self
                     .manager
@@ -444,6 +468,7 @@ impl Agent {
                                 .or_else(|| {
                                     unavailable.and_then(|device| device.hardware_id.as_deref())
                                 }),
+                            active.and_then(|mouse| mouse.display_name.as_deref()),
                         )
                     })
                     .collect(),
@@ -582,6 +607,7 @@ impl Agent {
                 managed,
                 &active.mouse,
                 active.hardware_id.as_deref(),
+                active.display_name.as_deref(),
                 &active.capabilities,
                 None,
             )?),
@@ -709,6 +735,7 @@ fn update_preferences(
             preferences.control = Some(store::ControlPreference::Onboard { profile: *profile });
         }
         protocol::RequestCommand::Ping
+        | protocol::RequestCommand::Shutdown
         | protocol::RequestCommand::ListDevices
         | protocol::RequestCommand::GetDevice { .. }
         | protocol::RequestCommand::Subscribe => {}
@@ -986,7 +1013,10 @@ fn restore_host_preferences(
 fn command_device_id(command: &protocol::RequestCommand) -> Option<&str> {
     use protocol::RequestCommand;
     match command {
-        RequestCommand::Ping | RequestCommand::ListDevices | RequestCommand::Subscribe => None,
+        RequestCommand::Ping
+        | RequestCommand::Shutdown
+        | RequestCommand::ListDevices
+        | RequestCommand::Subscribe => None,
         RequestCommand::GetDevice { device_id }
         | RequestCommand::SetDpi { device_id, .. }
         | RequestCommand::SetPollingRate { device_id, .. }
@@ -1005,6 +1035,7 @@ fn command_changes_settings(command: &protocol::RequestCommand) -> bool {
     !matches!(
         command,
         protocol::RequestCommand::Ping
+            | protocol::RequestCommand::Shutdown
             | protocol::RequestCommand::ListDevices
             | protocol::RequestCommand::GetDevice { .. }
             | protocol::RequestCommand::Subscribe
@@ -1033,12 +1064,18 @@ fn device_state(
     device: &core::ManagedDevice,
     mouse: &core::MouseDevice,
     hardware_id: Option<&str>,
+    display_name: Option<&str>,
     capabilities: &core::DeviceCapabilities,
     settings: Option<core::SettingsSnapshot>,
 ) -> Result<protocol::DeviceState> {
     let settings = settings.map_or_else(|| mouse.settings(), Ok)?;
     Ok(protocol::DeviceState {
-        device: device_summary(device, protocol::DeviceAvailability::Ready, hardware_id),
+        device: device_summary(
+            device,
+            protocol::DeviceAvailability::Ready,
+            hardware_id,
+            display_name,
+        ),
         capabilities: capabilities_state(capabilities.clone()),
         settings: settings_state(settings),
     })
@@ -1048,6 +1085,7 @@ fn device_summary(
     device: &core::ManagedDevice,
     availability: protocol::DeviceAvailability,
     hardware_id: Option<&str>,
+    display_name: Option<&str>,
 ) -> protocol::DeviceSummary {
     let ready = matches!(availability, protocol::DeviceAvailability::Ready);
     protocol::DeviceSummary {
@@ -1056,6 +1094,7 @@ fn device_summary(
         vendor_id: device.vendor_id,
         product_id: device.product_id,
         product_name: device.product_name.clone(),
+        display_name: display_name.map(str::to_owned),
         serial_number: device.serial_number.clone(),
         connection: match device.connection {
             core::DeviceConnection::DirectUsb => protocol::DeviceConnection::DirectUsb,
@@ -1340,6 +1379,11 @@ fn main() -> Result<()> {
         return startup::launch_background();
     }
 
+    #[cfg(target_os = "macos")]
+    if cli.launch_tray {
+        startup::launch_tray()?;
+    }
+
     #[cfg(windows)]
     let background_worker = cli.background_worker;
 
@@ -1407,7 +1451,7 @@ fn main() -> Result<()> {
         protocol::PROTOCOL_VERSION
     );
     let mut next_scan = std::time::Instant::now();
-    while !shutdown.load(Ordering::Acquire) {
+    'run: while !shutdown.load(Ordering::Acquire) {
         #[cfg(windows)]
         match startup::take_stop_request() {
             Ok(true) => {
@@ -1432,6 +1476,8 @@ fn main() -> Result<()> {
         }
 
         while let Some(pending) = ipc.try_recv()? {
+            let shutdown_requested =
+                matches!(pending.request.command, protocol::RequestCommand::Shutdown);
             let publish_change = command_changes_settings(&pending.request.command);
             let response = agent.handle_request(pending.request);
             if publish_change {
@@ -1440,12 +1486,17 @@ fn main() -> Result<()> {
                 }
             }
             let _ = pending.reply.send(response);
+            if shutdown_requested {
+                break 'run;
+            }
         }
 
         let wait = next_scan
             .saturating_duration_since(std::time::Instant::now())
             .min(Duration::from_secs(1));
         if let Some(pending) = ipc.recv_timeout(wait)? {
+            let shutdown_requested =
+                matches!(pending.request.command, protocol::RequestCommand::Shutdown);
             let publish_change = command_changes_settings(&pending.request.command);
             let response = agent.handle_request(pending.request);
             if publish_change {
@@ -1454,8 +1505,12 @@ fn main() -> Result<()> {
                 }
             }
             let _ = pending.reply.send(response);
+            if shutdown_requested {
+                break 'run;
+            }
         }
     }
+    ipc.publish(protocol::AgentEvent::ApplicationShuttingDown);
     agent.shutdown();
     println!("Open Hub agent stopped cleanly.");
     Ok(())
@@ -1498,6 +1553,7 @@ mod tests {
                 vendor_id: 0x046d,
                 product_id: 0xc54d,
                 product_name: Some("USB Receiver".to_owned()),
+                display_name: Some("PRO X Superlight 2".to_owned()),
                 serial_number: None,
                 connection: protocol::DeviceConnection::Receiver,
                 device_index: 1,

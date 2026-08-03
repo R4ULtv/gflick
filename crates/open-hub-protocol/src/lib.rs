@@ -18,6 +18,7 @@ pub struct ClientRequest {
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum RequestCommand {
     Ping,
+    Shutdown,
     ListDevices,
     GetDevice {
         device_id: String,
@@ -199,6 +200,7 @@ pub enum ErrorCode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum AgentEvent {
+    ApplicationShuttingDown,
     DeviceConnected {
         device: DeviceSummary,
     },
@@ -260,6 +262,10 @@ pub struct DeviceSummary {
     pub vendor_id: u16,
     pub product_id: u16,
     pub product_name: Option<String>,
+    /// HID++ device-reported model name. Unlike `product_name`, this identifies the
+    /// paired mouse when the USB interface itself is a generic receiver.
+    #[serde(default)]
+    pub display_name: Option<String>,
     pub serial_number: Option<String>,
     pub connection: DeviceConnection,
     pub device_index: u8,
@@ -409,6 +415,29 @@ mod tests {
     }
 
     #[test]
+    fn application_shutdown_round_trip_is_stable() {
+        let request = ClientRequest {
+            id: 7,
+            protocol_version: PROTOCOL_VERSION,
+            command: RequestCommand::Shutdown,
+        };
+        let request_json = serde_json::to_string(&request).unwrap();
+        assert!(request_json.contains("\"command\":\"shutdown\""));
+        assert_eq!(
+            serde_json::from_str::<ClientRequest>(&request_json).unwrap(),
+            request
+        );
+
+        let event = ServerMessage::event(AgentEvent::ApplicationShuttingDown);
+        let event_json = serde_json::to_string(&event).unwrap();
+        assert!(event_json.contains("\"event\":\"application_shutting_down\""));
+        assert_eq!(
+            serde_json::from_str::<ServerMessage>(&event_json).unwrap(),
+            event
+        );
+    }
+
+    #[test]
     fn device_summary_keeps_hardware_identity_backward_compatible() {
         let old_json = r#"{
             "id":"046d:c53f:path-example:01",
@@ -422,6 +451,7 @@ mod tests {
         }"#;
         let mut summary: DeviceSummary = serde_json::from_str(old_json).unwrap();
         assert_eq!(summary.hardware_id, None);
+        assert_eq!(summary.display_name, None);
         assert_eq!(summary.availability, None);
 
         summary.hardware_id = Some("046d:unit:1234abcd".to_owned());

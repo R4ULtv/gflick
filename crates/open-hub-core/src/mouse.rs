@@ -142,6 +142,14 @@ impl MouseDevice {
         }))
     }
 
+    /// Reads the device-reported mouse name without the additional firmware metadata.
+    pub fn name(&self) -> Result<Option<String>> {
+        self.features
+            .device_type_and_name
+            .map(|feature| self.session.device_name(feature))
+            .transpose()
+    }
+
     /// Returns an opaque identity suitable for associating persisted preferences with
     /// a physical mouse. Unlike the transport/session ID used by `DeviceManager`, this
     /// value is derived from the HID++ unit ID and does not depend on a USB path,
