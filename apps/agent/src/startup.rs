@@ -277,6 +277,7 @@ mod platform {
 
     fn spawn_background(executable: &std::path::Path) -> Result<()> {
         Command::new(executable)
+            .arg("--background-worker")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())

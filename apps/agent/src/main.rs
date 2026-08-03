@@ -61,6 +61,11 @@ struct Cli {
     #[cfg(windows)]
     #[arg(long, hide = true)]
     launch_background: bool,
+
+    /// Internal detached Windows agent process.
+    #[cfg(windows)]
+    #[arg(long, hide = true)]
+    background_worker: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1335,6 +1340,9 @@ fn main() -> Result<()> {
         return startup::launch_background();
     }
 
+    #[cfg(windows)]
+    let background_worker = cli.background_worker;
+
     if let Some(CliCommand::Startup { action }) = cli.command.as_ref() {
         let (label, status) = match action {
             StartupAction::Install => ("installed", startup::install()?),
@@ -1388,9 +1396,12 @@ fn main() -> Result<()> {
 
     let ipc = ipc::start()?;
     let shutdown = Arc::new(AtomicBool::new(false));
-    let shutdown_signal = Arc::clone(&shutdown);
-    ctrlc::set_handler(move || shutdown_signal.store(true, Ordering::Release))
-        .context("failed to install the graceful-shutdown handler")?;
+    #[cfg(not(windows))]
+    install_shutdown_handler(&shutdown)?;
+    #[cfg(windows)]
+    if !background_worker {
+        install_shutdown_handler(&shutdown)?;
+    }
     println!(
         "Open Hub agent started; IPC protocol v{} is ready.",
         protocol::PROTOCOL_VERSION
@@ -1450,6 +1461,12 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn install_shutdown_handler(shutdown: &Arc<AtomicBool>) -> Result<()> {
+    let shutdown_signal = Arc::clone(shutdown);
+    ctrlc::set_handler(move || shutdown_signal.store(true, Ordering::Release))
+        .context("failed to install the graceful-shutdown handler")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1463,6 +1480,14 @@ mod tests {
                 action: StartupAction::Install
             })
         ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn parses_detached_background_worker_flag() {
+        let cli = Cli::try_parse_from(["open-hub-agent", "--background-worker"]).unwrap();
+        assert!(cli.background_worker);
+        assert!(!cli.launch_background);
     }
 
     fn sample_device_state() -> protocol::DeviceState {
