@@ -1,4 +1,4 @@
-# Background resource benchmarking
+# Open Hub benchmark
 
 `open-hub-bench` is a native release-mode recorder for repeatable measurements of
 long-running process groups on Windows and macOS. It is intended for comparisons such

@@ -134,8 +134,9 @@ Detailed and hardware-specific information lives in [`docs/`](docs/):
   and client safety rules.
 - [macOS testing](docs/macos-testing.md) - Apple Silicon build, discovery, and
   reversible hardware-validation checklist.
-- [Background benchmarking](docs/benchmarking.md) - repeatable native Open Hub versus
-  G Hub CPU, memory, I/O, and process-family measurements.
+
+The native benchmark's complete usage and A/B procedure live with the crate in
+[apps/bench/README.md](apps/bench/README.md).
 
 ## License
 
