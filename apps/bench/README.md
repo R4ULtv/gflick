@@ -107,6 +107,77 @@ CPU exceeded either target's CPU usage, and background system load was not perfe
 quiet. These facts matter for whole-system energy testing even though recorder CPU is
 not included in the target CPU totals.
 
+## Initial Apple Silicon macOS result
+
+A sequential 30-minute-per-stack comparison was recorded on August 3, 2026, after the
+native menu-bar tray and wireless-link status work landed. This is one run per stack,
+not the final alternating three-run comparison recommended above.
+
+### Environment and scope
+
+| Item | Value |
+| --- | --- |
+| Operating system | macOS 15.7.7, build 24G720 |
+| Computer | MacBook Air (Mac16,12), Apple M4 |
+| Processor | 10 logical cores (4 performance, 6 efficiency) |
+| Memory | 16 GB |
+| Mouse | PRO X Wireless through its USB receiver, 1600 DPI |
+| Warm-up | 120 seconds per recorder |
+| Recorded duration | 1,800 seconds per recorder |
+| Sample interval | 2 seconds |
+| Open Hub group | `open-hub-agent`, `open-hub-tray` |
+| G Hub group | `lghub_agent`, `lghub_system_tray`, `lghub_updater` |
+
+G Hub was measured first with its settings window closed. Open Hub was then measured
+from commit `0b648be`, with the mouse in host/local control so its saved 1600 DPI was
+restored. The stacks were not allowed to own the mouse concurrently because starting
+G Hub immediately changed the live DPI to its configured value. Quitting G Hub stopped
+its user-session agent and tray, but its root-owned updater remained resident during the
+Open Hub run. That updater is excluded from the Open Hub target counters, so the target
+comparison is useful, but the run is not a fully isolated whole-system energy test.
+
+### Target process results
+
+| Metric | Open Hub | G Hub | Open Hub / G Hub | Reduction |
+| --- | ---: | ---: | ---: | ---: |
+| Accumulated CPU time | 3,621 ms | 3,403 ms | 1.064x | -6.4% |
+| Average CPU, one-core basis | 0.2012% | 0.1891% | 1.064x | -6.4% |
+| Average CPU, whole-system basis | 0.020117% | 0.018906% | 1.064x | -6.4% |
+| CPU sample p95 | 0.5008% | 0.3003% | 1.668x | -66.8% |
+| CPU sample maximum | 9.2546% | 1.1483% | 8.060x | -706.0% |
+| Resident memory mean | 34.959 MiB | 258.728 MiB | 0.135x | 86.5% |
+| Resident memory p95 | 38.078 MiB | 297.953 MiB | 0.128x | 87.2% |
+| Virtual memory mean | 802,945.779 MiB | 804,619.839 MiB | 0.998x | 0.2% |
+| I/O read total | 4,096 bytes | 18,399,232 bytes | 0.0002x | 99.98% |
+| I/O read rate | 2.276 bytes/s | 10,221.767 bytes/s | 0.0002x | 99.98% |
+| I/O write total | 0 bytes | 0 bytes | n/a | n/a |
+| Resident process count | 2 | 3 | 0.667x | 33.3% |
+
+Open Hub used approximately 7.4 times less mean resident memory and 4,492 times less
+read I/O per second. It did not use less CPU in this run: accumulated target CPU was
+6.4% higher than G Hub, and its short sample peaks were higher. macOS virtual-memory
+figures include large shared address-space mappings and should not be interpreted as
+physical memory pressure.
+
+### Validity and observer overhead
+
+| Check | Open Hub run | G Hub run |
+| --- | ---: | ---: |
+| Matched samples | 900 / 900 | 900 / 900 |
+| Missing samples | 0 | 0 |
+| Target process start events | 0 | 0 |
+| System CPU mean | 9.89% | 9.34% |
+| System CPU p95 | 45.94% | 36.85% |
+| System CPU maximum | 76.29% | 55.99% |
+| Recorder CPU time | 4,783 ms | 5,602 ms |
+| Recorder CPU, one-core basis | 0.266% | 0.311% |
+
+Both reports are complete and every target process remained stable. System load was
+somewhat noisier during the Open Hub run, and the recorder itself used more CPU than
+either target group. Repeat at least three alternating runs before treating the small
+CPU difference as representative. These process counters are a development baseline,
+not a direct energy or battery-life measurement.
+
 ## Record Open Hub
 
 The installed agent must already be running. This command excludes two minutes of
