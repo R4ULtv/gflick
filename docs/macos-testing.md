@@ -17,6 +17,14 @@ reversible live-setting tests. Direct-USB disconnect/connect/ready events were v
 No onboard flash was written, every live setting was restored, firmware lighting control
 was returned to the G305, and graceful shutdown left no stale local socket.
 
+Subsequent tray validation on the same Apple Silicon system covered the installed
+application bundle, automatic per-user startup, native template icon, battery/DPI title,
+event-driven settings updates, wireless unavailable/recovery transitions with the
+receiver still connected, and application-wide quit. The agent and tray then remained
+stable for all 900 samples of a 30-minute idle benchmark. See the
+[benchmark report](../apps/bench/README.md#initial-apple-silicon-macos-result) for the
+resource measurements and test limitations.
+
 A 61-second release-agent sample using deliberately aggressive 2-second discovery and
 30-second battery intervals averaged 0.28% CPU and 3,847 KiB RSS. This is a development
 baseline, not a final power-efficiency claim.

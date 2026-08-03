@@ -104,12 +104,15 @@ A connection that sends `subscribe` becomes an event-only stream after receiving
 
 - `device_connected`: HID discovery found an interface; it may not yet be awake
 - `device_ready`: the agent opened the mouse and read its initial state
-- `device_unavailable`: an initial open failed or three consecutive HID failures
-  discarded a stale session; `reason_code` distinguishes `not_responding` from
-  `communication_error`, and the next discovery pass retries it
+- `device_unavailable`: an initial open failed, an asynchronous HID++ notification
+  reported that a wireless link was lost while its USB receiver remained present, or
+  repeated HID failures discarded a stale session; `reason_code` distinguishes
+  `not_responding` from `communication_error`, and the next discovery pass retries it
 - `device_disconnected`
 - `battery_changed`
 - `settings_changed`
+- `application_shutting_down`: the agent is exiting and all subscribed UI components
+  should close without attempting to reconnect
 
 For manual inspection:
 

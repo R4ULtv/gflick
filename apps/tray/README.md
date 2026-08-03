@@ -48,7 +48,7 @@ The reusable transport lives in `crates/open-hub-client`; future settings applic
 can use the same typed request and subscription API instead of duplicating local-socket
 framing.
 
-## Initial Windows smoke result
+## Platform validation
 
 The release tray was validated against the installed Windows agent on August 3, 2026.
 After one-time notification-area initialization settled, a full 60-second idle interval
@@ -56,5 +56,10 @@ used no measurable CPU time. The process remained stable at five threads, approx
 `2.47 MiB` private memory and `11.98 MiB` working set, with no handle growth. These are
 short development measurements, not a final benchmark.
 
-Apple Silicon macOS compilation, menu-bar appearance, title updates, reconnect behavior,
-and idle resources remain pending validation.
+Apple Silicon macOS validation passed on a MacBook Air with an Apple M4 and macOS
+15.7.7. The installed application bundle, per-user startup, accessory activation policy,
+full-color Finder icon, template menu-bar icon, battery/DPI title, live menu updates,
+wireless unavailable/recovery events, and application-wide quit behavior all worked as
+intended. The agent and tray also remained stable throughout a complete 30-minute idle
+recording; the combined measurements and limitations are documented in the
+[benchmark README](../bench/README.md#initial-apple-silicon-macos-result).
