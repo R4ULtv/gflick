@@ -138,7 +138,7 @@ developer-only direct-HID tool; use the IPC `open-hub` CLI for normal user contr
 while the agent is running. Do not run Probe's direct-HID commands concurrently with
 the agent, tray, or `open-hub`, because they can compete for the same HID interface.
 
-For normal user control with the agent running, see the [CLI documentation](docs/cli.md).
+For normal user control with the agent running, see the [CLI documentation](apps/cli/README.md).
 Use Probe for diagnostics and explicit dangerous profile-flash work:
 
 ```sh
