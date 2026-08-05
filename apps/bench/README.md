@@ -32,8 +32,8 @@ For comparable results:
    games, or other foreground work during a measurement.
 5. Record at least three runs per stack. Alternate their order when practical so time
    and temperature do not consistently favor one application.
-6. Use 30-minute measurements for a serious idle comparison. This covers several Open
-   Hub five-minute battery queries and makes very small CPU-time totals measurable.
+6. Use 30-minute measurements for a serious idle comparison. This covers several GFlick
+  five-minute battery queries and makes very small CPU-time totals measurable.
 
 The default two-second interval captures accumulated CPU and I/O between samples; it
 does not lose CPU work that happens between samples. New matching processes are
