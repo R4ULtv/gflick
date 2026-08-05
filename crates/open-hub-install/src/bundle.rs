@@ -154,41 +154,114 @@ mod tests {
     use crate::manifest::{BundleFile, Component, ComponentManifest, InstallRoot};
     use std::collections::{BTreeMap, BTreeSet};
 
+    fn write_payload(path: &Path, bytes: &[u8], executable: bool) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, bytes).unwrap();
+        #[cfg(not(unix))]
+        let _ = executable;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = if executable { 0o755 } else { 0o644 };
+            fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+        }
+    }
+
     fn create_bundle() -> (tempfile::TempDir, BundleManifest) {
         let root = tempfile::tempdir().unwrap();
-        fs::create_dir(root.path().join("payload")).unwrap();
-        fs::write(root.path().join("open-hub-setup.exe"), b"setup").unwrap();
-        fs::write(root.path().join("payload/agent.exe"), b"agent").unwrap();
-        fs::write(root.path().join("payload/tray.exe"), b"tray").unwrap();
-        let make = |source: &str, destination: &str, bytes: &[u8]| BundleFile {
-            source: source.into(),
-            root: InstallRoot::PrivateBin,
-            destination: destination.into(),
-            length: bytes.len() as u64,
-            sha256: format!("{:x}", Sha256::digest(bytes)),
-            executable: true,
+        write_payload(&root.path().join("open-hub-setup.exe"), b"setup", true);
+        write_payload(&root.path().join("payload/agent.exe"), b"agent", true);
+        let make =
+            |source: &str, root: InstallRoot, destination: &str, bytes: &[u8], executable: bool| {
+                BundleFile {
+                    source: source.into(),
+                    root,
+                    destination: destination.into(),
+                    length: bytes.len() as u64,
+                    sha256: format!("{:x}", Sha256::digest(bytes)),
+                    executable,
+                }
+            };
+        let platform = Platform::current().unwrap();
+        let tray_files = if platform == Platform::Macos {
+            write_payload(
+                &root.path().join("payload/tray/open-hub-tray"),
+                b"tray",
+                true,
+            );
+            write_payload(
+                &root.path().join("payload/tray/Info.plist"),
+                b"plist",
+                false,
+            );
+            write_payload(
+                &root.path().join("payload/tray/favicon.icns"),
+                b"icon",
+                false,
+            );
+            vec![
+                make(
+                    "payload/tray/open-hub-tray",
+                    InstallRoot::PrivateApp,
+                    "Contents/MacOS/open-hub-tray",
+                    b"tray",
+                    true,
+                ),
+                make(
+                    "payload/tray/Info.plist",
+                    InstallRoot::PrivateApp,
+                    "Contents/Info.plist",
+                    b"plist",
+                    false,
+                ),
+                make(
+                    "payload/tray/favicon.icns",
+                    InstallRoot::PrivateApp,
+                    "Contents/Resources/favicon.icns",
+                    b"icon",
+                    false,
+                ),
+            ]
+        } else {
+            write_payload(&root.path().join("payload/tray.exe"), b"tray", true);
+            vec![make(
+                "payload/tray.exe",
+                InstallRoot::PrivateBin,
+                "open-hub-tray.exe",
+                b"tray",
+                true,
+            )]
         };
         let manifest = BundleManifest {
             schema: 1,
             product_version: "1.0.0".into(),
-            platform: Platform::current().unwrap(),
+            platform,
             arch: Architecture::current().unwrap(),
             required: BTreeSet::from([Component::Agent]),
             defaults: BTreeSet::from([Component::Agent, Component::Tray]),
-            setup: make("open-hub-setup.exe", "open-hub-setup.exe", b"setup"),
+            setup: make(
+                "open-hub-setup.exe",
+                InstallRoot::PrivateBin,
+                "open-hub-setup.exe",
+                b"setup",
+                true,
+            ),
             components: BTreeMap::from([
                 (
                     Component::Agent,
                     ComponentManifest {
-                        files: vec![make("payload/agent.exe", "open-hub-agent.exe", b"agent")],
+                        files: vec![make(
+                            "payload/agent.exe",
+                            InstallRoot::PrivateBin,
+                            "open-hub-agent.exe",
+                            b"agent",
+                            true,
+                        )],
                     },
                 ),
-                (
-                    Component::Tray,
-                    ComponentManifest {
-                        files: vec![make("payload/tray.exe", "open-hub-tray.exe", b"tray")],
-                    },
-                ),
+                (Component::Tray, ComponentManifest { files: tray_files }),
             ]),
         };
         fs::write(
@@ -208,11 +281,13 @@ mod tests {
     #[test]
     fn rejects_missing_size_and_digest_mismatches() {
         let (root, manifest) = create_bundle();
-        fs::remove_file(root.path().join("payload/tray.exe")).unwrap();
+        let tray = &manifest.components[&Component::Tray].files[0];
+        let tray_path = root.path().join(&tray.source);
+        fs::remove_file(&tray_path).unwrap();
         assert!(Bundle::open(root.path()).unwrap().validate().is_err());
-        fs::write(root.path().join("payload/tray.exe"), b"longer").unwrap();
+        write_payload(&tray_path, b"longer", tray.executable);
         assert!(Bundle::open(root.path()).unwrap().validate().is_err());
-        fs::write(root.path().join("payload/tray.exe"), b"TRAY").unwrap();
+        write_payload(&tray_path, b"TRAY", tray.executable);
         assert!(Bundle::open(root.path()).unwrap().validate().is_err());
         assert_eq!(manifest.schema, 1);
     }

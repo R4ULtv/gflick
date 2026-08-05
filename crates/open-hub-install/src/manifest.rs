@@ -392,22 +392,51 @@ impl InstallState {
 mod tests {
     use super::*;
 
-    fn file(source: &str, destination: &str) -> BundleFile {
+    fn file_at(source: &str, root: InstallRoot, destination: &str, executable: bool) -> BundleFile {
         BundleFile {
             source: source.into(),
-            root: InstallRoot::PrivateBin,
+            root,
             destination: destination.into(),
             length: 1,
             sha256: "00".repeat(32),
-            executable: true,
+            executable,
         }
     }
 
+    fn file(source: &str, destination: &str) -> BundleFile {
+        file_at(source, InstallRoot::PrivateBin, destination, true)
+    }
+
     fn manifest() -> BundleManifest {
+        let platform = Platform::current().unwrap();
+        let tray_files = if platform == Platform::Macos {
+            vec![
+                file_at(
+                    "payload/tray/open-hub-tray",
+                    InstallRoot::PrivateApp,
+                    "Contents/MacOS/open-hub-tray",
+                    true,
+                ),
+                file_at(
+                    "payload/tray/Info.plist",
+                    InstallRoot::PrivateApp,
+                    "Contents/Info.plist",
+                    false,
+                ),
+                file_at(
+                    "payload/tray/favicon.icns",
+                    InstallRoot::PrivateApp,
+                    "Contents/Resources/favicon.icns",
+                    false,
+                ),
+            ]
+        } else {
+            vec![file("payload/open-hub-tray.exe", "open-hub-tray.exe")]
+        };
         BundleManifest {
             schema: BUNDLE_SCHEMA,
             product_version: "1.0.0".into(),
-            platform: Platform::current().unwrap(),
+            platform,
             arch: Architecture::current().unwrap(),
             required: BTreeSet::from([Component::Agent]),
             defaults: BTreeSet::from([Component::Agent, Component::Tray]),
@@ -419,12 +448,7 @@ mod tests {
                         files: vec![file("payload/open-hub-agent.exe", "open-hub-agent.exe")],
                     },
                 ),
-                (
-                    Component::Tray,
-                    ComponentManifest {
-                        files: vec![file("payload/open-hub-tray.exe", "open-hub-tray.exe")],
-                    },
-                ),
+                (Component::Tray, ComponentManifest { files: tray_files }),
                 (
                     Component::Cli,
                     ComponentManifest {
@@ -548,8 +572,12 @@ mod tests {
         value.platform = Platform::Macos;
         value.arch = Architecture::Aarch64;
         let tray = value.components.get_mut(&Component::Tray).unwrap();
-        tray.files[0].root = InstallRoot::PrivateApp;
-        tray.files[0].destination = "Contents/MacOS/open-hub-tray".into();
+        tray.files = vec![file_at(
+            "payload/tray/open-hub-tray",
+            InstallRoot::PrivateApp,
+            "Contents/MacOS/open-hub-tray",
+            true,
+        )];
         assert!(
             value
                 .validate_model(Platform::Macos, Architecture::Aarch64)
