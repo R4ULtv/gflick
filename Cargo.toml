@@ -2,6 +2,7 @@
 members = [
     "apps/agent",
     "apps/bench",
+    "apps/cli",
     "apps/probe",
     "apps/tray",
     "crates/open-hub-client",
@@ -24,6 +25,7 @@ all = { level = "deny", priority = -1 }
 [workspace.dependencies]
 anyhow = "1.0.98"
 clap = { version = "4.5.42", features = ["derive"] }
+clap_complete = "4.5.61"
 ctrlc = "3.5.2"
 directories = "6.0.0"
 hidapi = { version = "2.6.6", default-features = false }

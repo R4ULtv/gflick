@@ -15,10 +15,9 @@ Open Hub is work in progress, not a finished Logitech G HUB replacement. The cur
 target is Windows 10/11 and Apple Silicon macOS. Intel macOS is outside the current
 support and test matrix.
 
-The agent and its protocol are the intended integration boundary. `open-hub-probe` is
-currently a development, diagnostic, and hardware-validation CLI. Its command surface
-may change as it is expanded into a more complete user-facing CLI or consolidated with
-another tool.
+The agent and its protocol are the intended integration boundary. `open-hub` is the
+user-facing IPC CLI for controlling a running agent. `open-hub-probe` remains a
+development, diagnostic, and hardware-validation CLI that opens HID devices directly.
 
 ## Early efficiency result
 
@@ -40,8 +39,9 @@ three-run procedure are documented in the [benchmark README](apps/bench/README.m
 | `crates/open-hub-client` | Typed synchronous client for requests and event subscriptions over local IPC |
 | `crates/open-hub-protocol` | Versioned serializable requests, responses, snapshots, and events for local IPC clients |
 | `apps/agent` | `open-hub-agent`, the device owner, monitor, settings store, and local IPC server |
+| `apps/cli` | `open-hub`, the user-facing scriptable IPC CLI for a running agent |
 | `apps/tray` | `open-hub-tray`, the native Windows notification-area and macOS menu-bar status client |
-| `apps/probe` | `open-hub-probe`, the experimental diagnostic and configuration CLI |
+| `apps/probe` | `open-hub-probe`, the developer-only direct-HID diagnostic and configuration CLI |
 | `apps/bench` | `open-hub-bench`, a development utility for recording and comparing resident-process resource usage |
 | `docs` | Protocol, feature coverage, platform validation, and other project documentation |
 
@@ -49,7 +49,7 @@ In normal use, the data flow is:
 
 ```text
 Logitech mouse -> HID/HID++ -> open-hub-core -> open-hub-agent -> open-hub-client
-                                      \-> open-hub-probe          \-> open-hub-tray
+                                      \-> open-hub-probe          \-> open-hub / open-hub-tray
 ```
 
 ## What it can do
@@ -133,7 +133,13 @@ and the initial Windows idle measurement.
 
 ## Inspect hardware with the probe
 
-The probe is useful when adding support or validating a real device:
+`open-hub-probe` is useful when adding support or validating real hardware. It is a
+developer-only direct-HID tool; use the IPC `open-hub` CLI for normal user control
+while the agent is running. Do not run Probe's direct-HID commands concurrently with
+the agent, tray, or `open-hub`, because they can compete for the same HID interface.
+
+For normal user control with the agent running, see the [CLI documentation](docs/cli.md).
+Use Probe for diagnostics and explicit dangerous profile-flash work:
 
 ```sh
 cargo run -p open-hub-probe -- list
