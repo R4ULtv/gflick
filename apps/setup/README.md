@@ -1,4 +1,4 @@
-# Installing Open Hub
+# Open Hub Setup
 
 `open-hub-setup` is the per-user, non-elevated installer and maintenance tool. It
 installs a verified release bundle that is already present on disk; it does not

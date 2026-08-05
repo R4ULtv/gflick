@@ -36,7 +36,7 @@ open-hub-setup install --components agent,tray
 The agent and tray use independent per-user login registrations, so tray remains
 optional and a headless agent install is supported. Release tray builds use the Windows
 GUI subsystem, so no console window remains open. See the
-[installation guide](../../docs/installation.md) for platform paths and maintenance.
+[setup README](../setup/README.md) for platform paths and maintenance.
 
 ## Runtime design
 

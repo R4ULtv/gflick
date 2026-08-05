@@ -59,7 +59,7 @@ open-hub-setup modify --components agent,tray,cli
 
 The setup path is per-user and does not require administrator privileges. It verifies
 the complete release bundle before stopping or replacing the agent. See the
-[installation guide](../../docs/installation.md) for status, repair, and removal.
+[setup README](../setup/README.md) for status, repair, and removal.
 
 ## IPC diagnostics
 
@@ -101,4 +101,4 @@ On startup, the agent loads persisted settings, discovers devices, and applies c
 - [User-facing CLI](../cli/README.md)
 - [Tray application](../tray/README.md)
 - [Hardware feature matrix](../../docs/feature-matrix.md)
-- [Installation](../../docs/installation.md)
+- [Setup and installation](../setup/README.md)

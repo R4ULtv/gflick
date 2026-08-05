@@ -112,7 +112,7 @@ open-hub-setup install --components agent,tray,cli
 
 The current default is `agent,tray`; use `--components agent` for a headless install.
 Settings is the future primary UI and remains unavailable until its real payload ships.
-See the [installation guide](docs/installation.md) for bundle verification, component
+See the [setup README](apps/setup/README.md) for bundle verification, component
 selection, installed paths, status and repair, and data-retention behavior.
 
 The [IPC protocol documentation](docs/ipc-protocol.md) covers message formats,
@@ -176,7 +176,7 @@ be a general network service or a complete authentication boundary yet.
 
 ## Documentation
 
-Detailed and hardware-specific information lives in [`docs/`](docs/):
+Detailed and component-specific information lives with each app and in [`docs/`](docs/):
 
 - [Feature matrix](docs/feature-matrix.md) - supported capabilities, tested mice, and
   excluded HID++ features.
@@ -184,7 +184,7 @@ Detailed and hardware-specific information lives in [`docs/`](docs/):
   and client safety rules.
 - [macOS testing](docs/macos-testing.md) - Apple Silicon build, discovery, and
   reversible hardware-validation checklist.
-- [Installation](docs/installation.md) - verified release bundles, selectable
+- [Setup and installation](apps/setup/README.md) - verified release bundles, selectable
   components, platform paths, repair, and uninstall retention.
 
 The native benchmark's complete usage and A/B procedure live with the crate in
