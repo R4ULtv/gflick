@@ -1,6 +1,6 @@
-# Open Hub
+# GFlick
 
-Open Hub is an experimental Rust workspace for discovering and controlling compatible
+GFlick is an experimental Rust workspace for discovering and controlling compatible
 Logitech mice through HID++.
 
 The project is built around a reusable device library and a background agent. The
@@ -11,12 +11,12 @@ mouse advertises it.
 
 ## Current status
 
-Open Hub is work in progress, not a finished Logitech G HUB replacement. The current
+GFlick is work in progress, not a finished Logitech G HUB replacement. The current
 target is Windows 10/11 and Apple Silicon macOS. Intel macOS is outside the current
 support and test matrix.
 
-The agent and its protocol are the intended integration boundary. `open-hub` is the
-user-facing IPC CLI for controlling a running agent. `open-hub-probe` remains a
+The agent and its protocol are the intended integration boundary. `gflick` is the
+user-facing IPC CLI for controlling a running agent. `gflick-probe` remains a
 development, diagnostic, and hardware-validation CLI that opens HID devices directly.
 
 ## Download and install
@@ -27,28 +27,28 @@ along with `SHA256SUMS`. Verify the archive before extracting it:
 
 ```powershell
 # Windows PowerShell; compare this value with the archive's SHA256SUMS entry
-(Get-FileHash .\open-hub-0.1.0-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()
+(Get-FileHash .\gflick-0.1.0-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()
 ```
 
 ```sh
 # Apple Silicon macOS
-shasum -a 256 open-hub-0.1.0-macos-aarch64.tar.gz
+shasum -a 256 gflick-0.1.0-macos-aarch64.tar.gz
 ```
 
-Extract the archive, then run `open-hub-setup install` from the extracted directory.
+Extract the archive, then run `gflick-setup install` from the extracted directory.
 Installing a release bundle does not require Rust or a compiler. See the
 [setup README](apps/setup/README.md) for component selection, verification, repair,
 and uninstall instructions.
 
-The separately named `open-hub-devtools-<version>-<platform>-<arch>` archive is only
+The separately named `gflick-devtools-<version>-<platform>-<arch>` archive is only
 for development and hardware diagnosis. Its Probe executable opens HID directly and
 must not run at the same time as the agent.
 
 ## Early efficiency result
 
-In an initial 30-minute Windows process-counter comparison, Open Hub averaged `0.105%`
+In an initial 30-minute Windows process-counter comparison, GFlick averaged `0.105%`
 of one CPU core and `7.58 MiB` of resident memory. The complete resident G Hub stack
-averaged `0.385%` of one core and `227.55 MiB`: Open Hub used 72.8% less target CPU,
+averaged `0.385%` of one core and `227.55 MiB`: GFlick used 72.8% less target CPU,
 96.7% less resident memory, and more than 99.7% less recorded I/O. All 900 samples
 matched without a target process restart.
 
@@ -60,21 +60,21 @@ three-run procedure are documented in the [benchmark README](apps/bench/README.m
 
 | Path | Purpose |
 | --- | --- |
-| `crates/open-hub-core` | HID/HID++ transport, discovery, capability models, settings, and onboard-profile APIs |
-| `crates/open-hub-client` | Typed synchronous client for requests and event subscriptions over local IPC |
-| `crates/open-hub-protocol` | Versioned serializable requests, responses, snapshots, and events for local IPC clients |
-| [`apps/agent`](apps/agent/README.md) | `open-hub-agent`, the device owner, monitor, settings store, and local IPC server |
-| [`apps/cli`](apps/cli/README.md) | `open-hub`, the user-facing scriptable IPC CLI for a running agent |
-| [`apps/tray`](apps/tray/README.md) | `open-hub-tray`, the native Windows notification-area and macOS menu-bar status client |
-| [`apps/probe`](apps/probe/README.md) | `open-hub-probe`, the developer-only direct-HID diagnostic and configuration CLI |
-| [`apps/bench`](apps/bench/README.md) | `open-hub-bench`, a development utility for recording and comparing resident-process resource usage |
+| `crates/gflick-core` | HID/HID++ transport, discovery, capability models, settings, and onboard-profile APIs |
+| `crates/gflick-client` | Typed synchronous client for requests and event subscriptions over local IPC |
+| `crates/gflick-protocol` | Versioned serializable requests, responses, snapshots, and events for local IPC clients |
+| [`apps/agent`](apps/agent/README.md) | `gflick-agent`, the device owner, monitor, settings store, and local IPC server |
+| [`apps/cli`](apps/cli/README.md) | `gflick`, the user-facing scriptable IPC CLI for a running agent |
+| [`apps/tray`](apps/tray/README.md) | `gflick-tray`, the native Windows notification-area and macOS menu-bar status client |
+| [`apps/probe`](apps/probe/README.md) | `gflick-probe`, the developer-only direct-HID diagnostic and configuration CLI |
+| [`apps/bench`](apps/bench/README.md) | `gflick-bench`, a development utility for recording and comparing resident-process resource usage |
 | `docs` | Protocol, feature coverage, platform validation, and other project documentation |
 
 In normal use, the data flow is:
 
 ```text
-Logitech mouse -> HID/HID++ -> open-hub-core -> open-hub-agent -> open-hub-client
-                                      \-> open-hub-probe          \-> open-hub / open-hub-tray
+Logitech mouse -> HID/HID++ -> gflick-core -> gflick-agent -> gflick-client
+                                      \-> gflick-probe          \-> gflick / gflick-tray
 ```
 
 ## What it can do
@@ -116,13 +116,13 @@ cargo clippy --workspace --all-targets -- -D warnings
 Run a single discovery pass and print the initial state:
 
 ```sh
-cargo run -p open-hub-agent -- --once
+cargo run -p gflick-agent -- --once
 ```
 
 Run the background monitoring agent:
 
 ```sh
-cargo run -p open-hub-agent
+cargo run -p gflick-agent
 ```
 
 The agent periodically discovers devices, keeps opened mouse sessions owned by one
@@ -131,8 +131,8 @@ version 1 over an OS-local socket. Release bundles are installed and maintained 
 standalone setup bootstrapper:
 
 ```sh
-open-hub-setup install
-open-hub-setup install --components agent,tray,cli
+gflick-setup install
+gflick-setup install --components agent,tray,cli
 ```
 
 The current default is `agent,tray`; use `--components agent` for a headless install.
@@ -151,8 +151,8 @@ modes, persistence, and runtime boundaries.
 With the agent running, build and launch the native tray companion:
 
 ```sh
-cargo build --release -p open-hub-tray
-./target/release/open-hub-tray
+cargo build --release -p gflick-tray
+./target/release/gflick-tray
 ```
 
 It shows agent connectivity, current battery and DPI for every connected mouse. The
@@ -162,10 +162,10 @@ and the initial Windows idle measurement.
 
 ## Inspect hardware with the probe
 
-`open-hub-probe` is useful when adding support or validating real hardware. It is a
-developer-only direct-HID tool; use the IPC `open-hub` CLI for normal user control
+`gflick-probe` is useful when adding support or validating real hardware. It is a
+developer-only direct-HID tool; use the IPC `gflick` CLI for normal user control
 while the agent is running. Do not run Probe's direct-HID commands concurrently with
-the agent, tray, or `open-hub`, because they can compete for the same HID interface.
+the agent, tray, or `gflick`, because they can compete for the same HID interface.
 
 See the [probe README](apps/probe/README.md) for its complete command groups,
 device-selection workflow, and hardware safety rules.
@@ -174,9 +174,9 @@ For normal user control with the agent running, see the [CLI documentation](apps
 Use Probe for diagnostics and explicit dangerous profile-flash work:
 
 ```sh
-cargo run -p open-hub-probe -- list
-cargo run -p open-hub-probe -- devices
-cargo run -p open-hub-probe -- --help
+cargo run -p gflick-probe -- list
+cargo run -p gflick-probe -- devices
+cargo run -p gflick-probe -- --help
 ```
 
 The read-only commands include `list`, `devices`, `probe`, `features`, and `profiles`.
@@ -189,7 +189,7 @@ interfaces and reapply its own active profile.
 
 ## Safety and scope
 
-Open Hub communicates with real device firmware. Unsupported inputs are rejected,
+GFlick communicates with real device firmware. Unsupported inputs are rejected,
 setting commands verify read-back, and profile writes preserve unknown data, validate
 CRCs, and have rollback paths. Hardware validation is still device-specific; an
 encoder test or a successful read on one model does not mean that every model is safe
@@ -219,4 +219,4 @@ The native benchmark's complete usage and A/B procedure live with the crate in
 
 ## License
 
-Open Hub is available under the [MIT License](LICENSE).
+GFlick is available under the [MIT License](LICENSE).

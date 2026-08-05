@@ -1,5 +1,5 @@
 [package]
-name = "open-hub-agent"
+name = "gflick-agent"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -15,8 +15,8 @@ clap.workspace = true
 ctrlc.workspace = true
 directories.workspace = true
 interprocess.workspace = true
-open-hub-core.workspace = true
-open-hub-protocol.workspace = true
+gflick-core.workspace = true
+gflick-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

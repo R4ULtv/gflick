@@ -6,12 +6,12 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use interprocess::local_socket::{
-    GenericFilePath, GenericNamespaced, Listener, ListenerOptions, Stream, prelude::*,
-};
-use open_hub_protocol::{
+use gflick_protocol::{
     AgentEvent, ClientRequest, ErrorCode, LOCAL_SOCKET_NAME, MAX_MESSAGE_BYTES, PROTOCOL_VERSION,
     RequestCommand, ResponseData, ServerMessage,
+};
+use interprocess::local_socket::{
+    GenericFilePath, GenericNamespaced, Listener, ListenerOptions, Stream, prelude::*,
 };
 
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -53,13 +53,13 @@ impl IpcHandle {
 }
 
 pub fn start() -> Result<IpcHandle> {
-    let listener = create_listener().context("failed to create the Open Hub local socket")?;
+    let listener = create_listener().context("failed to create the GFlick local socket")?;
     let (request_tx, request_rx) = mpsc::channel();
     let subscribers = Arc::new(Mutex::new(Vec::new()));
     let listener_subscribers = Arc::clone(&subscribers);
 
     thread::Builder::new()
-        .name("open-hub-ipc-listener".to_owned())
+        .name("gflick-ipc-listener".to_owned())
         .spawn(move || accept_connections(listener, request_tx, listener_subscribers))
         .context("failed to start the IPC listener thread")?;
 
@@ -73,7 +73,7 @@ pub fn send_request(request_json: &str) -> Result<String> {
     if request_json.len() > MAX_MESSAGE_BYTES {
         bail!("request exceeds the {MAX_MESSAGE_BYTES}-byte IPC limit");
     }
-    let stream = connect().context("could not connect to the Open Hub agent")?;
+    let stream = connect().context("could not connect to the GFlick agent")?;
     let mut writer = &stream;
     writer.write_all(request_json.as_bytes())?;
     writer.write_all(b"\n")?;
@@ -93,7 +93,7 @@ pub fn print_event_stream(max_events: Option<usize>) -> Result<()> {
         protocol_version: PROTOCOL_VERSION,
         command: RequestCommand::Subscribe,
     };
-    let stream = connect().context("could not connect to the Open Hub agent")?;
+    let stream = connect().context("could not connect to the GFlick agent")?;
     let mut writer = &stream;
     serde_json::to_writer(&mut writer, &request)?;
     writer.write_all(b"\n")?;
@@ -158,7 +158,7 @@ fn accept_connections(
                 let requests = requests.clone();
                 let subscribers = Arc::clone(&subscribers);
                 if let Err(error) = thread::Builder::new()
-                    .name("open-hub-ipc-client".to_owned())
+                    .name("gflick-ipc-client".to_owned())
                     .spawn(move || {
                         if let Err(error) = handle_client(stream, requests, subscribers) {
                             eprintln!("IPC client disconnected: {error:#}");

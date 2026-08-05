@@ -1,5 +1,5 @@
 [package]
-name = "open-hub-setup"
+name = "gflick-setup"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -11,9 +11,9 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
-open-hub-client.workspace = true
-open-hub-install.workspace = true
-open-hub-protocol.workspace = true
+gflick-client.workspace = true
+gflick-install.workspace = true
+gflick-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

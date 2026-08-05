@@ -1,4 +1,4 @@
-//! Verified, transactional per-user installation for Open Hub release bundles.
+//! Verified, transactional per-user installation for GFlick release bundles.
 
 pub mod bundle;
 pub mod manifest;

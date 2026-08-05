@@ -1,4 +1,4 @@
-//! Typed synchronous client for the Open Hub local IPC protocol.
+//! Typed synchronous client for the GFlick local IPC protocol.
 
 use std::{
     io::{BufRead, BufReader, Read, Write},
@@ -6,11 +6,11 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use interprocess::local_socket::{GenericFilePath, GenericNamespaced, Stream, prelude::*};
-use open_hub_protocol::{
+use gflick_protocol::{
     AgentEvent, ClientRequest, LOCAL_SOCKET_NAME, MAX_MESSAGE_BYTES, PROTOCOL_VERSION,
     RequestCommand, ResponseData, ResponseResult, ServerMessage,
 };
+use interprocess::local_socket::{GenericFilePath, GenericNamespaced, Stream, prelude::*};
 
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -22,7 +22,7 @@ pub fn request(command: RequestCommand) -> Result<ResponseData> {
         protocol_version: PROTOCOL_VERSION,
         command,
     };
-    let stream = connect().context("could not connect to the Open Hub agent")?;
+    let stream = connect().context("could not connect to the GFlick agent")?;
     write_message(&stream, &request)?;
     let mut reader = BufReader::new(stream);
     match read_message(&mut reader)? {
@@ -55,7 +55,7 @@ impl EventSubscription {
             protocol_version: PROTOCOL_VERSION,
             command: RequestCommand::Subscribe,
         };
-        let stream = connect().context("could not connect to the Open Hub agent")?;
+        let stream = connect().context("could not connect to the GFlick agent")?;
         write_message(&stream, &request)?;
         let mut reader = BufReader::new(stream);
         match read_message(&mut reader)? {
@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn reports_agent_errors() {
         let result = response_data(ResponseResult::Error {
-            code: open_hub_protocol::ErrorCode::DeviceNotFound,
+            code: gflick_protocol::ErrorCode::DeviceNotFound,
             message: "missing".to_owned(),
         });
         assert!(result.unwrap_err().to_string().contains("DeviceNotFound"));

@@ -589,6 +589,126 @@ dependencies = [
 ]
 
 [[package]]
+name = "gflick-agent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "ctrlc",
+ "directories",
+ "gflick-core",
+ "gflick-protocol",
+ "interprocess",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "winresource",
+]
+
+[[package]]
+name = "gflick-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
+ "sysinfo",
+]
+
+[[package]]
+name = "gflick-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "clap_complete",
+ "gflick-client",
+ "gflick-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "gflick-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gflick-protocol",
+ "interprocess",
+ "serde_json",
+]
+
+[[package]]
+name = "gflick-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hidapi",
+]
+
+[[package]]
+name = "gflick-install"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "directories",
+ "gflick-client",
+ "gflick-protocol",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
+name = "gflick-probe"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "gflick-core",
+ "hidapi",
+]
+
+[[package]]
+name = "gflick-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "gflick-setup"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "gflick-client",
+ "gflick-install",
+ "gflick-protocol",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "gflick-tray"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "directories",
+ "gflick-client",
+ "gflick-protocol",
+ "image",
+ "tempfile",
+ "tray-icon",
+ "winit",
+ "winresource",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1208,126 +1328,6 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
-
-[[package]]
-name = "open-hub-agent"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "ctrlc",
- "directories",
- "interprocess",
- "open-hub-core",
- "open-hub-protocol",
- "serde",
- "serde_json",
- "tempfile",
- "winresource",
-]
-
-[[package]]
-name = "open-hub-bench"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "serde",
- "serde_json",
- "sysinfo",
-]
-
-[[package]]
-name = "open-hub-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "clap_complete",
- "open-hub-client",
- "open-hub-protocol",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "open-hub-client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "interprocess",
- "open-hub-protocol",
- "serde_json",
-]
-
-[[package]]
-name = "open-hub-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "hidapi",
-]
-
-[[package]]
-name = "open-hub-install"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "directories",
- "open-hub-client",
- "open-hub-protocol",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
-]
-
-[[package]]
-name = "open-hub-probe"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "hidapi",
- "open-hub-core",
-]
-
-[[package]]
-name = "open-hub-protocol"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "open-hub-setup"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "open-hub-client",
- "open-hub-install",
- "open-hub-protocol",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "open-hub-tray"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "directories",
- "image",
- "open-hub-client",
- "open-hub-protocol",
- "tempfile",
- "tray-icon",
- "winit",
- "winresource",
-]
 
 [[package]]
 name = "option-ext"

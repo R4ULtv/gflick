@@ -14,11 +14,11 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
-use open_hub_core as core;
-use open_hub_protocol as protocol;
+use gflick_core as core;
+use gflick_protocol as protocol;
 
 #[derive(Debug, Parser)]
-#[command(name = "open-hub-agent", about = "Low-overhead Open Hub mouse agent")]
+#[command(name = "gflick-agent", about = "Low-overhead GFlick mouse agent")]
 struct Cli {
     /// Seconds between USB device discovery passes.
     #[arg(long, default_value_t = 5)]
@@ -1406,7 +1406,7 @@ fn main() -> Result<()> {
     )?;
 
     if cli.once {
-        println!("Open Hub agent one-shot discovery; no settings will be changed.");
+        println!("GFlick agent one-shot discovery; no settings will be changed.");
         agent.tick()?;
         return Ok(());
     }
@@ -1422,7 +1422,7 @@ fn main() -> Result<()> {
         install_shutdown_handler(&shutdown)?;
     }
     println!(
-        "Open Hub agent started; IPC protocol v{} is ready.",
+        "GFlick agent started; IPC protocol v{} is ready.",
         protocol::PROTOCOL_VERSION
     );
     let mut next_scan = std::time::Instant::now();
@@ -1477,7 +1477,7 @@ fn main() -> Result<()> {
     }
     ipc.publish(protocol::AgentEvent::ApplicationShuttingDown);
     agent.shutdown();
-    println!("Open Hub agent stopped cleanly.");
+    println!("GFlick agent stopped cleanly.");
     Ok(())
 }
 
@@ -1493,13 +1493,13 @@ mod tests {
 
     #[test]
     fn rejects_removed_startup_commands() {
-        assert!(Cli::try_parse_from(["open-hub-agent", "startup", "install"]).is_err());
+        assert!(Cli::try_parse_from(["gflick-agent", "startup", "install"]).is_err());
     }
 
     #[cfg(windows)]
     #[test]
     fn parses_detached_background_worker_flag() {
-        let cli = Cli::try_parse_from(["open-hub-agent", "--background-worker"]).unwrap();
+        let cli = Cli::try_parse_from(["gflick-agent", "--background-worker"]).unwrap();
         assert!(cli.background_worker);
     }
 

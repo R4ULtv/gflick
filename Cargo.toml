@@ -6,10 +6,10 @@ members = [
     "apps/probe",
     "apps/setup",
     "apps/tray",
-    "crates/open-hub-client",
-    "crates/open-hub-core",
-    "crates/open-hub-install",
-    "crates/open-hub-protocol",
+    "crates/gflick-client",
+    "crates/gflick-core",
+    "crates/gflick-install",
+    "crates/gflick-protocol",
 ]
 resolver = "3"
 
@@ -33,10 +33,10 @@ directories = "6.0.0"
 hidapi = { version = "2.6.6", default-features = false }
 image = { version = "=0.25.8", default-features = false, features = ["ico"] }
 interprocess = "2.4.3"
-open-hub-core = { path = "crates/open-hub-core" }
-open-hub-client = { path = "crates/open-hub-client" }
-open-hub-install = { path = "crates/open-hub-install" }
-open-hub-protocol = { path = "crates/open-hub-protocol" }
+gflick-core = { path = "crates/gflick-core" }
+gflick-client = { path = "crates/gflick-client" }
+gflick-install = { path = "crates/gflick-install" }
+gflick-protocol = { path = "crates/gflick-protocol" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.10.9"

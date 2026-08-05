@@ -1,8 +1,8 @@
-# Open Hub agent
+# GFlick agent
 
-`open-hub-agent` is the required background service for Open Hub. It discovers supported mice, owns the HID sessions, persists settings, and exposes the local IPC API used by the CLI, tray, and future settings app.
+`gflick-agent` is the required background service for GFlick. It discovers supported mice, owns the HID sessions, persists settings, and exposes the local IPC API used by the CLI, tray, and future settings app.
 
-Only the agent should communicate with a device during normal Open Hub use. User-facing clients should send requests over IPC instead of opening HID interfaces directly.
+Only the agent should communicate with a device during normal GFlick use. User-facing clients should send requests over IPC instead of opening HID interfaces directly.
 
 ## Responsibilities
 
@@ -19,26 +19,26 @@ Only the agent should communicate with a device during normal Open Hub use. User
 From the workspace root:
 
 ```text
-cargo build --release -p open-hub-agent
-cargo run -p open-hub-agent
+cargo build --release -p gflick-agent
+cargo run -p gflick-agent
 ```
 
 Run one discovery pass and exit:
 
 ```text
-cargo run -p open-hub-agent -- --once
+cargo run -p gflick-agent -- --once
 ```
 
 Use a specific settings file while developing or testing:
 
 ```text
-cargo run -p open-hub-agent -- --settings-file ./open-hub-settings.json
+cargo run -p gflick-agent -- --settings-file ./gflick-settings.json
 ```
 
 See every option with:
 
 ```text
-cargo run -q -p open-hub-agent -- --help
+cargo run -q -p gflick-agent -- --help
 ```
 
 ## Installation and per-user startup
@@ -47,14 +47,14 @@ The standalone setup bootstrapper installs and maintains the agent. The current
 manifest default also selects the optional tray:
 
 ```text
-open-hub-setup install
+gflick-setup install
 ```
 
 Install only the required headless service, or add the optional CLI:
 
 ```text
-open-hub-setup install --components agent
-open-hub-setup modify --components agent,tray,cli
+gflick-setup install --components agent
+gflick-setup modify --components agent,tray,cli
 ```
 
 The setup path is per-user and does not require administrator privileges. It verifies
@@ -68,17 +68,17 @@ These modes turn the agent binary into a small diagnostic IPC client. Start a no
 Send one protocol request:
 
 ```powershell
-'{"id":1,"protocol_version":1,"command":"ping"}' | cargo run -q -p open-hub-agent -- --request-stdin
+'{"id":1,"protocol_version":1,"command":"ping"}' | cargo run -q -p gflick-agent -- --request-stdin
 ```
 
 Print events until interrupted, or stop after a fixed number:
 
 ```text
-cargo run -q -p open-hub-agent -- --events
-cargo run -q -p open-hub-agent -- --events --event-count 1
+cargo run -q -p gflick-agent -- --events
+cargo run -q -p gflick-agent -- --events --event-count 1
 ```
 
-The user-facing [`open-hub` CLI](../cli/README.md) is the preferred interface for ordinary inspection and configuration.
+The user-facing [`gflick` CLI](../cli/README.md) is the preferred interface for ordinary inspection and configuration.
 
 ## Settings and persistence
 
@@ -90,7 +90,7 @@ On startup, the agent loads persisted settings, discovers devices, and applies c
 
 ## Runtime boundaries
 
-- Do not run a normal agent and `open-hub-probe` against the same mouse at the same time.
+- Do not run a normal agent and `gflick-probe` against the same mouse at the same time.
 - Fully exit Logitech G HUB before testing direct device access.
 - The IPC endpoint is local to the current machine, but it is not an authentication boundary for untrusted local processes.
 - Clients should tolerate device removal and reconnection; discovery indexes are not stable identifiers.

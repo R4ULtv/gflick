@@ -1,6 +1,6 @@
-# Open Hub tray
+# GFlick tray
 
-`open-hub-tray` is a lightweight native companion to the headless agent. It is a
+`gflick-tray` is a lightweight native companion to the headless agent. It is a
 notification-area app on Windows and a menu-bar status item on macOS. It never opens HID
 devices and cannot change mouse settings; all state comes from the versioned local IPC
 protocol.
@@ -15,11 +15,11 @@ The menu shows:
 
 The macOS status-item title also shows the primary mouse's battery and DPI without
 opening the menu. On Windows the same summary is available by hovering over the tray
-icon. `Refresh` requests a fresh device snapshot. `Quit Open Hub` gracefully stops the
+icon. `Refresh` requests a fresh device snapshot. `Quit GFlick` gracefully stops the
 agent and closes the tray, matching the lifecycle users expect from the visible app.
 
 Windows uses the multi-resolution `assets/favicon.ico` for the executable and tray.
-macOS installs a background `Open Hub.app` bundle with `assets/favicon.icns`, while its
+macOS installs a background `GFlick.app` bundle with `assets/favicon.icns`, while its
 menu-bar item uses the monochrome, transparent `assets/tray-template.png` so the system
 can adapt it to light, dark, and highlighted appearances.
 
@@ -29,8 +29,8 @@ Build the tray during development, or select it from an extracted release bundle
 the setup bootstrapper:
 
 ```powershell
-cargo build --release -p open-hub-tray
-open-hub-setup install --components agent,tray
+cargo build --release -p gflick-tray
+gflick-setup install --components agent,tray
 ```
 
 The agent and tray use independent per-user login registrations, so tray remains
@@ -45,11 +45,11 @@ It does not continuously poll. It wakes for connection lifecycle, device lifecyc
 settings, or battery events. If the agent is unavailable, the icon changes to its
 offline presentation and the client retries every five seconds.
 
-The reusable transport lives in `crates/open-hub-client`; future settings applications
+The reusable transport lives in `crates/gflick-client`; future settings applications
 can use the same typed request and subscription API instead of duplicating local-socket
 framing.
 
-During repair, update, or removal, `open-hub-setup` uses a bounded per-user stop-request
+During repair, update, or removal, `gflick-setup` uses a bounded per-user stop-request
 handshake so the tray can exit cleanly even while the agent is offline. The tray
 consumes the request and closes through its normal event-loop path; setup never
 force-kills it and cleans an unconsumed request when no tray is running.

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use open_hub_protocol::{
+use gflick_protocol::{
     AgentEvent, BatteryState, DeviceState, DeviceSummary, DpiState, SettingsState,
 };
 
@@ -97,7 +97,7 @@ impl TrayState {
 
     pub fn tooltip(&self) -> String {
         if !self.agent_connected {
-            return "Open Hub — agent offline".to_owned();
+            return "GFlick — agent offline".to_owned();
         }
         let Some(device) = self
             .devices
@@ -105,15 +105,15 @@ impl TrayState {
             .find(|device| device.settings.is_some())
         else {
             return if self.devices.is_empty() {
-                "Open Hub — no mouse connected".to_owned()
+                "GFlick — no mouse connected".to_owned()
             } else {
-                "Open Hub — mouse unavailable".to_owned()
+                "GFlick — mouse unavailable".to_owned()
             };
         };
         let status = device.status();
         truncate(
             &format!(
-                "Open Hub — {}\n{} · {}",
+                "GFlick — {}\n{} · {}",
                 status.name, status.battery, status.dpi
             ),
             120,
@@ -209,7 +209,7 @@ fn dpi_label(dpi: Option<&DpiState>) -> String {
 
 fn availability_reason(summary: &DeviceSummary) -> Option<String> {
     match summary.availability.as_ref() {
-        Some(open_hub_protocol::DeviceAvailability::Unavailable { detail, .. }) => {
+        Some(gflick_protocol::DeviceAvailability::Unavailable { detail, .. }) => {
             Some(detail.clone())
         }
         _ if summary.ready => None,
@@ -231,7 +231,7 @@ fn truncate(value: &str, maximum_characters: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use open_hub_protocol::{
+    use gflick_protocol::{
         DeviceAvailability, DeviceCapabilities, DeviceConnection, PollingRateCapabilities,
         PollingRateState,
     };
@@ -282,7 +282,7 @@ mod tests {
         tray.replace(vec![(state.device.clone(), Some(state))]);
         tray.apply(AgentEvent::DeviceUnavailable {
             device_id: id,
-            reason_code: Some(open_hub_protocol::DeviceUnavailableReason::NotResponding),
+            reason_code: Some(gflick_protocol::DeviceUnavailableReason::NotResponding),
             reason: "wireless link disconnected".to_owned(),
         });
 

@@ -18,8 +18,8 @@ use crate::manifest::Component;
 
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 const ENVIRONMENT_KEY: &str = r"HKCU\Environment";
-const AGENT_VALUE: &str = "OpenHubAgent";
-const TRAY_VALUE: &str = "OpenHubTray";
+const AGENT_VALUE: &str = "GFlickAgent";
+const TRAY_VALUE: &str = "GFlickTray";
 const PATH_VALUE: &str = "Path";
 
 #[derive(Clone, Debug, Default)]
@@ -36,17 +36,17 @@ impl WindowsPlatform {
 impl PlatformBackend for WindowsPlatform {
     fn paths(&self) -> Result<PlatformPaths> {
         let base = BaseDirs::new().context("could not determine per-user Windows directories")?;
-        let root = base.data_local_dir().join("open-hub");
+        let root = base.data_local_dir().join("gflick");
         Ok(PlatformPaths {
             install_root: root.clone(),
             private_bin: root.join("bin"),
             private_app: root.join("app"),
-            user_applications: base.data_local_dir().join("Programs/Open Hub"),
+            user_applications: base.data_local_dir().join("Programs/GFlick"),
             user_local_bin: root.join("bin"),
             state_file: root.join("install-state.json"),
             tray_ready: root.join("tray.ready"),
             tray_stop: root.join("tray.stop"),
-            preferences: base.config_dir().join("open-hub/settings.json"),
+            preferences: base.config_dir().join("gflick/settings.json"),
             logs: root.join("logs"),
         })
     }
@@ -223,19 +223,19 @@ fn registration_decision(
 fn agent_command(paths: &PlatformPaths) -> String {
     format!(
         r#""{}" --background-worker"#,
-        paths.private_bin.join("open-hub-agent.exe").display()
+        paths.private_bin.join("gflick-agent.exe").display()
     )
 }
 
 fn tray_command(paths: &PlatformPaths) -> String {
     format!(
         r#""{}""#,
-        paths.private_bin.join("open-hub-tray.exe").display()
+        paths.private_bin.join("gflick-tray.exe").display()
     )
 }
 
 fn settings_executable(paths: &PlatformPaths) -> PathBuf {
-    paths.user_applications.join("open-hub-settings.exe")
+    paths.user_applications.join("gflick-settings.exe")
 }
 
 fn settings_shortcut() -> Result<PathBuf> {
@@ -244,7 +244,7 @@ fn settings_shortcut() -> Result<PathBuf> {
         .data_dir()
         .parent()
         .map_or_else(|| base.data_dir().to_path_buf(), Path::to_path_buf);
-    Ok(app_data.join("Roaming/Microsoft/Windows/Start Menu/Programs/Open Hub.lnk"))
+    Ok(app_data.join("Roaming/Microsoft/Windows/Start Menu/Programs/GFlick.lnk"))
 }
 
 #[cfg(windows)]
@@ -491,17 +491,17 @@ mod tests {
     fn parses_quoted_run_value_with_spaces() {
         let output = r#"
 HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
-    OpenHubAgent    REG_SZ    "C:\Users\Test User\open-hub-agent.exe" --background-worker
+    GFlickAgent    REG_SZ    "C:\Users\Test User\gflick-agent.exe" --background-worker
 "#;
         assert_eq!(
             parse_registry_value(output, AGENT_VALUE).as_deref(),
-            Some(r#""C:\Users\Test User\open-hub-agent.exe" --background-worker"#)
+            Some(r#""C:\Users\Test User\gflick-agent.exe" --background-worker"#)
         );
     }
 
     #[test]
     fn path_edit_preserves_unrelated_entries() {
-        let bin = Path::new(r"C:\Users\Test\open-hub\bin");
+        let bin = Path::new(r"C:\Users\Test\gflick\bin");
         let original = r"C:\Windows;C:\Tools";
         let added = append_path(original, bin);
         assert!(path_contains(&added, bin));
@@ -511,8 +511,8 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
     #[test]
     fn startup_commands_are_independent() {
         let paths = PlatformPaths {
-            install_root: PathBuf::from(r"C:\Open Hub"),
-            private_bin: PathBuf::from(r"C:\Open Hub\bin"),
+            install_root: PathBuf::from(r"C:\GFlick"),
+            private_bin: PathBuf::from(r"C:\GFlick\bin"),
             private_app: PathBuf::new(),
             user_applications: PathBuf::new(),
             user_local_bin: PathBuf::new(),
@@ -523,17 +523,14 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
             logs: PathBuf::new(),
         };
         assert!(agent_command(&paths).contains("--background-worker"));
-        assert!(!agent_command(&paths).contains("open-hub-tray"));
-        assert_eq!(
-            tray_command(&paths),
-            r#""C:\Open Hub\bin\open-hub-tray.exe""#
-        );
+        assert!(!agent_command(&paths).contains("gflick-tray"));
+        assert_eq!(tray_command(&paths), r#""C:\GFlick\bin\gflick-tray.exe""#);
     }
 
     #[test]
     fn preexisting_registrations_are_never_claimed_or_overwritten() {
         let kind = RegistrationKind::AgentStartup;
-        let expected = r#""C:\Open Hub\open-hub-agent.exe" --background-worker"#;
+        let expected = r#""C:\GFlick\gflick-agent.exe" --background-worker"#;
         let exact = RegistrationState {
             records: vec![record(kind, "existing".into(), expected.into(), false)],
             path_warning: None,
@@ -556,7 +553,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
             records: vec![record(
                 RegistrationKind::CliExposure,
                 "PATH".into(),
-                r"C:\Open Hub\bin".into(),
+                r"C:\GFlick\bin".into(),
                 false,
             )],
             path_warning: None,
@@ -569,7 +566,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
         let existing = RegistrationState {
             records: vec![record(
                 RegistrationKind::SettingsLauncher,
-                "Open Hub.lnk".into(),
+                "GFlick.lnk".into(),
                 "<pre-existing shortcut>".into(),
                 false,
             )],
@@ -579,7 +576,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
             registration_decision(
                 &existing,
                 RegistrationKind::SettingsLauncher,
-                r"C:\Open Hub\open-hub-settings.exe"
+                r"C:\GFlick\gflick-settings.exe"
             )
             .is_err()
         );
@@ -588,8 +585,8 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
     #[test]
     fn powershell_paths_escape_single_quotes() {
         assert_eq!(
-            powershell_path(Path::new(r"C:\Users\O'Brien\Open Hub.lnk")),
-            r"C:\Users\O''Brien\Open Hub.lnk"
+            powershell_path(Path::new(r"C:\Users\O'Brien\GFlick.lnk")),
+            r"C:\Users\O''Brien\GFlick.lnk"
         );
     }
 }

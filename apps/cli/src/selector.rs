@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use anyhow::{Result, bail};
-use open_hub_protocol::{DeviceAvailability, DeviceSummary};
+use gflick_protocol::{DeviceAvailability, DeviceSummary};
 
 pub fn select_device(devices: &[DeviceSummary], selector: Option<&str>) -> Result<DeviceSummary> {
     match selector {
@@ -93,7 +93,7 @@ fn candidates(devices: &[DeviceSummary]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use open_hub_protocol::DeviceConnection;
+    use gflick_protocol::DeviceConnection;
 
     use super::*;
 

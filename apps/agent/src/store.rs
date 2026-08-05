@@ -8,12 +8,12 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use directories::BaseDirs;
-use open_hub_protocol as protocol;
+use gflick_protocol as protocol;
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 
 const SETTINGS_VERSION: u32 = 1;
-const SETTINGS_DIRECTORY: &str = "open-hub";
+const SETTINGS_DIRECTORY: &str = "gflick";
 const SETTINGS_FILE: &str = "settings.json";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

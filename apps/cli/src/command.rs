@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use anyhow::{Result, bail};
-use open_hub_protocol::{
+use gflick_protocol::{
     Connection, DeviceState, DeviceSummary, LiftOffDistance, LightingEffect, OperatingMode,
     RequestCommand, ResponseData, SurfaceMode,
 };
@@ -24,7 +24,7 @@ pub struct IpcBackend;
 
 impl Backend for IpcBackend {
     fn request(&mut self, command: RequestCommand) -> Result<ResponseData> {
-        open_hub_client::request(command)
+        gflick_client::request(command)
     }
 }
 
@@ -206,18 +206,18 @@ fn lighting_to_protocol(value: LightingCommand) -> LightingEffect {
 
 pub fn ipc_context(error: anyhow::Error) -> anyhow::Error {
     let text = error.to_string();
-    if text.contains("could not connect to the Open Hub agent") {
+    if text.contains("could not connect to the GFlick agent") {
         anyhow::anyhow!(
-            "the Open Hub background agent is not running; install or start it, then try again"
+            "the GFlick background agent is not running; install or start it, then try again"
         )
     } else {
-        error.context("Open Hub command failed")
+        error.context("GFlick command failed")
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use open_hub_protocol::{
+    use gflick_protocol::{
         DeviceCapabilities, DeviceConnection, PollingRateCapabilities, PollingRateState,
         SettingsState,
     };
@@ -325,7 +325,7 @@ mod tests {
             }),
             set(SettingCommand::Lighting {
                 effect: LightingCommand::Fixed {
-                    color: open_hub_protocol::RgbColor {
+                    color: gflick_protocol::RgbColor {
                         red: 1,
                         green: 2,
                         blue: 3,
@@ -340,7 +340,7 @@ mod tests {
             }),
             set(SettingCommand::Lighting {
                 effect: LightingCommand::Breathing {
-                    color: open_hub_protocol::RgbColor {
+                    color: gflick_protocol::RgbColor {
                         red: 1,
                         green: 2,
                         blue: 3,
@@ -409,7 +409,7 @@ mod tests {
                     device_id: "session-id".to_owned(),
                     zone: 0,
                     effect: LightingEffect::Fixed {
-                        color: open_hub_protocol::RgbColor {
+                        color: gflick_protocol::RgbColor {
                             red: 1,
                             green: 2,
                             blue: 3
@@ -428,7 +428,7 @@ mod tests {
                     device_id: "session-id".to_owned(),
                     zone: 0,
                     effect: LightingEffect::Breathing {
-                        color: open_hub_protocol::RgbColor {
+                        color: gflick_protocol::RgbColor {
                             red: 1,
                             green: 2,
                             blue: 3

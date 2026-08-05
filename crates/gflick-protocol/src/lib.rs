@@ -1,9 +1,9 @@
-//! Versioned JSON protocol shared by the Open Hub agent and settings clients.
+//! Versioned JSON protocol shared by the GFlick agent and settings clients.
 
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL_VERSION: u16 = 1;
-pub const LOCAL_SOCKET_NAME: &str = "open-hub-agent-v1.sock";
+pub const LOCAL_SOCKET_NAME: &str = "gflick-agent-v1.sock";
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

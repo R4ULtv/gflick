@@ -35,7 +35,7 @@ if [[ -n $settings_app_dir ]]; then
   settings_app_dir=$(cd "$settings_app_dir" && pwd)
 fi
 
-for name in open-hub-setup open-hub-agent open-hub-tray open-hub open-hub-probe open-hub-bench; do
+for name in gflick-setup gflick-agent gflick-tray gflick gflick-probe gflick-bench; do
   [[ -f $binary_dir/$name ]] || { echo "required release binary is missing: $binary_dir/$name" >&2; exit 2; }
 done
 
@@ -44,16 +44,16 @@ repository_root=$(cd "$script_dir/.." && pwd)
 [[ -f $repository_root/assets/favicon.icns ]] || { echo "required tray icon is missing" >&2; exit 2; }
 mkdir -p "$output_dir"
 output_dir=$(cd "$output_dir" && pwd)
-temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/open-hub-package.XXXXXX")
+temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/gflick-package.XXXXXX")
 trap 'rm -rf "$temporary_root"' EXIT
 user_stage=$temporary_root/user
 developer_stage=$temporary_root/devtools
 mkdir -p "$user_stage/payload/tray/Contents/MacOS" "$user_stage/payload/tray/Contents/Resources" "$developer_stage"
 
-cp "$binary_dir/open-hub-setup" "$user_stage/open-hub-setup"
-cp "$binary_dir/open-hub-agent" "$user_stage/payload/open-hub-agent"
-cp "$binary_dir/open-hub-tray" "$user_stage/payload/tray/Contents/MacOS/open-hub-tray"
-cp "$binary_dir/open-hub" "$user_stage/payload/open-hub"
+cp "$binary_dir/gflick-setup" "$user_stage/gflick-setup"
+cp "$binary_dir/gflick-agent" "$user_stage/payload/gflick-agent"
+cp "$binary_dir/gflick-tray" "$user_stage/payload/tray/Contents/MacOS/gflick-tray"
+cp "$binary_dir/gflick" "$user_stage/payload/gflick"
 cp "$repository_root/assets/favicon.icns" "$user_stage/payload/tray/Contents/Resources/favicon.icns"
 cat > "$user_stage/payload/tray/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -61,15 +61,15 @@ cat > "$user_stage/payload/tray/Contents/Info.plist" <<EOF
 <plist version="1.0">
 <dict>
   <key>CFBundleDisplayName</key>
-  <string>Open Hub</string>
+  <string>GFlick</string>
   <key>CFBundleExecutable</key>
-  <string>open-hub-tray</string>
+  <string>gflick-tray</string>
   <key>CFBundleIdentifier</key>
-  <string>io.github.r4ultv.open-hub</string>
+  <string>io.github.r4ultv.gflick</string>
   <key>CFBundleIconFile</key>
   <string>favicon.icns</string>
   <key>CFBundleName</key>
-  <string>Open Hub</string>
+  <string>GFlick</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -130,12 +130,12 @@ if [[ -n $settings_app_dir ]]; then
   printf ']' >> "$settings_fragment"
 fi
 
-setup_record=$(file_record "$user_stage/open-hub-setup" open-hub-setup private_bin open-hub-setup true)
-agent_record=$(file_record "$user_stage/payload/open-hub-agent" payload/open-hub-agent private_bin open-hub-agent true)
-tray_binary_record=$(file_record "$user_stage/payload/tray/Contents/MacOS/open-hub-tray" payload/tray/Contents/MacOS/open-hub-tray private_app Contents/MacOS/open-hub-tray true)
+setup_record=$(file_record "$user_stage/gflick-setup" gflick-setup private_bin gflick-setup true)
+agent_record=$(file_record "$user_stage/payload/gflick-agent" payload/gflick-agent private_bin gflick-agent true)
+tray_binary_record=$(file_record "$user_stage/payload/tray/Contents/MacOS/gflick-tray" payload/tray/Contents/MacOS/gflick-tray private_app Contents/MacOS/gflick-tray true)
 tray_plist_record=$(file_record "$user_stage/payload/tray/Contents/Info.plist" payload/tray/Contents/Info.plist private_app Contents/Info.plist false)
 tray_icon_record=$(file_record "$user_stage/payload/tray/Contents/Resources/favicon.icns" payload/tray/Contents/Resources/favicon.icns private_app Contents/Resources/favicon.icns false)
-cli_record=$(file_record "$user_stage/payload/open-hub" payload/open-hub private_bin open-hub true)
+cli_record=$(file_record "$user_stage/payload/gflick" payload/gflick private_bin gflick true)
 
 if $settings_present; then
   defaults='["agent","tray","settings"]'
@@ -161,24 +161,24 @@ cat > "$user_stage/bundle.json" <<EOF
 }
 EOF
 
-"$user_stage/open-hub-setup" verify-bundle "$user_stage"
+"$user_stage/gflick-setup" verify-bundle "$user_stage"
 
-cp "$binary_dir/open-hub-probe" "$developer_stage/open-hub-probe"
-cp "$binary_dir/open-hub-bench" "$developer_stage/open-hub-bench"
+cp "$binary_dir/gflick-probe" "$developer_stage/gflick-probe"
+cp "$binary_dir/gflick-bench" "$developer_stage/gflick-bench"
 cat > "$developer_stage/README.md" <<'EOF'
-# Open Hub developer tools
+# GFlick developer tools
 
-These tools are not part of the user installation. `open-hub-probe` opens HID
-devices directly and must not run at the same time as `open-hub-agent`.
+These tools are not part of the user installation. `gflick-probe` opens HID
+devices directly and must not run at the same time as `gflick-agent`.
 EOF
 
 find "$user_stage" "$developer_stage" -exec touch -t 198001010000 {} +
-user_archive_name=open-hub-$version-macos-aarch64.tar.gz
-developer_archive_name=open-hub-devtools-$version-macos-aarch64.tar.gz
+user_archive_name=gflick-$version-macos-aarch64.tar.gz
+developer_archive_name=gflick-devtools-$version-macos-aarch64.tar.gz
 user_archive=$output_dir/$user_archive_name
 developer_archive=$output_dir/$developer_archive_name
-(cd "$user_stage" && COPYFILE_DISABLE=1 tar -czf "$user_archive" bundle.json open-hub-setup payload)
-(cd "$developer_stage" && COPYFILE_DISABLE=1 tar -czf "$developer_archive" README.md open-hub-probe open-hub-bench)
+(cd "$user_stage" && COPYFILE_DISABLE=1 tar -czf "$user_archive" bundle.json gflick-setup payload)
+(cd "$developer_stage" && COPYFILE_DISABLE=1 tar -czf "$developer_archive" README.md gflick-probe gflick-bench)
 
 fragment=$output_dir/SHA256SUMS-macos-aarch64
 {

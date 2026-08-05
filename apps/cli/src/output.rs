@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use anyhow::Result;
-use open_hub_protocol::{
+use gflick_protocol::{
     AgentEvent, ConfigurationSource, DeviceState, DeviceSummary, OperatingMode, PROTOCOL_VERSION,
     PollingRateState, SurfaceMode,
 };
@@ -180,7 +180,7 @@ fn event_human(event: &AgentEvent) -> String {
 
 #[cfg(test)]
 mod tests {
-    use open_hub_protocol::{
+    use gflick_protocol::{
         BatteryState, BunnyHoppingState, DeviceAvailability, DeviceConnection, DeviceSummary,
         DpiState,
     };
@@ -241,7 +241,7 @@ mod tests {
         let mut unavailable = summary();
         unavailable.hardware_id = Some("hardware-id".to_owned());
         unavailable.availability = Some(DeviceAvailability::Unavailable {
-            reason: open_hub_protocol::DeviceUnavailableReason::NotResponding,
+            reason: gflick_protocol::DeviceUnavailableReason::NotResponding,
             detail: "sleeping".to_owned(),
         });
         unavailable.ready = false;
@@ -273,7 +273,7 @@ mod tests {
         let mut unavailable = state();
         unavailable.device.ready = false;
         unavailable.device.availability = Some(DeviceAvailability::Unavailable {
-            reason: open_hub_protocol::DeviceUnavailableReason::NotResponding,
+            reason: gflick_protocol::DeviceUnavailableReason::NotResponding,
             detail: "sleeping".to_owned(),
         });
         unavailable.settings.battery = Some(BatteryState {
@@ -334,7 +334,7 @@ mod tests {
     }
 
     fn state() -> DeviceState {
-        use open_hub_protocol::{
+        use gflick_protocol::{
             DeviceCapabilities, PollingRateCapabilities, PollingRateState, SettingsState,
         };
         DeviceState {
@@ -365,9 +365,7 @@ mod tests {
     }
 
     fn populated_state() -> DeviceState {
-        use open_hub_protocol::{
-            ConfigurationSource, OperatingMode, PollingRateState, SurfaceMode,
-        };
+        use gflick_protocol::{ConfigurationSource, OperatingMode, PollingRateState, SurfaceMode};
         let mut device = state();
         device.settings.battery = Some(BatteryState {
             percentage: 89,

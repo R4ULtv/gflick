@@ -1,4 +1,4 @@
-//! Reusable Logitech HID++ transport and device operations for Open Hub.
+//! Reusable Logitech HID++ transport and device operations for GFlick.
 
 mod manager;
 mod mouse;
@@ -124,7 +124,7 @@ pub struct FeatureDescriptor {
     pub support: FeatureSupport,
 }
 
-/// Classifies HID++ features for the public Open Hub API.
+/// Classifies HID++ features for the public GFlick API.
 ///
 /// Feature-set flags take precedence over the numeric ID: Logitech devices can
 /// expose an otherwise familiar feature as hidden/internal firmware machinery.

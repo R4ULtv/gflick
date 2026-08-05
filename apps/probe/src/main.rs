@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use hidapi::{DeviceInfo, HidApi};
 
-use open_hub_core::{
+use gflick_core::{
     ColorLedEffect, ConfigurationSource, ConnectionType, DeviceConnection, DeviceManager,
     HidppSession, LiftOffDistance, MouseDevice, OnboardButtonAction, OnboardProfileEdit,
     OnboardSpecialAction, OperatingMode, PollingRateCapabilities, PollingRateSettings, RgbColor,
@@ -14,7 +14,7 @@ use open_hub_core::{
 const LOGITECH_VENDOR_ID: u16 = 0x046d;
 
 #[derive(Debug, Parser)]
-#[command(name = "open-hub-probe")]
+#[command(name = "gflick-probe")]
 #[command(about = "Logitech HID/HID++ diagnostic and configuration utility")]
 struct Cli {
     #[command(subcommand)]
@@ -918,7 +918,7 @@ fn set_profile_polling_rate(
             hz,
         },
     )?;
-    let select = |profile: &open_hub_core::OnboardProfile| match connection {
+    let select = |profile: &gflick_core::OnboardProfile| match connection {
         PollingConnection::Wired => profile.wired_hz,
         PollingConnection::Wireless => profile.wireless_hz,
     };
@@ -1044,7 +1044,7 @@ fn optional_text(value: Option<&str>) -> &str {
     value.unwrap_or("<default>")
 }
 
-fn profile_dpi_label(stage: &open_hub_core::OnboardDpiStage) -> String {
+fn profile_dpi_label(stage: &gflick_core::OnboardDpiStage) -> String {
     match (stage.y, stage.lod) {
         (Some(y), Some(lod)) => format!("{}x{y}/{lod}", stage.x),
         (Some(y), None) => format!("{}x{y}", stage.x),
@@ -1611,7 +1611,7 @@ fn select_device(devices: &[DeviceInfo], selector: DeviceSelector) -> Result<(us
             .get(index)
             .map(|info| (index, info))
             .with_context(|| {
-                format!("device index {index} does not exist; run `open-hub-probe list` again")
+                format!("device index {index} does not exist; run `gflick-probe list` again")
             }),
         DeviceSelector::UsbId {
             vendor_id,
@@ -1625,7 +1625,7 @@ fn select_device(devices: &[DeviceInfo], selector: DeviceSelector) -> Result<(us
             });
             let selected = matches.next().with_context(|| {
                 format!(
-                    "no HID++ short-report collection found for {vendor_id:04x}:{product_id:04x}; run `open-hub-probe list`"
+                    "no HID++ short-report collection found for {vendor_id:04x}:{product_id:04x}; run `gflick-probe list`"
                 )
             })?;
             if matches.next().is_some() {

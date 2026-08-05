@@ -24,9 +24,9 @@ use super::{RegistrationKind, RegistrationRecord, RegistrationState};
 use crate::manifest::Component;
 
 #[cfg(any(target_os = "macos", test))]
-const AGENT_LABEL: &str = "io.github.r4ultv.open-hub.agent";
+const AGENT_LABEL: &str = "io.github.r4ultv.gflick.agent";
 #[cfg(any(target_os = "macos", test))]
-const TRAY_LABEL: &str = "io.github.r4ultv.open-hub.tray";
+const TRAY_LABEL: &str = "io.github.r4ultv.gflick.tray";
 
 #[derive(Clone, Debug, Default)]
 pub struct MacOsPlatform;
@@ -42,22 +42,22 @@ impl MacOsPlatform {
 impl PlatformBackend for MacOsPlatform {
     fn paths(&self) -> Result<PlatformPaths> {
         if !cfg!(target_arch = "aarch64") {
-            bail!("Open Hub supports Apple Silicon macOS only; Intel macOS is unsupported");
+            bail!("GFlick supports Apple Silicon macOS only; Intel macOS is unsupported");
         }
         let base =
             BaseDirs::new().context("could not determine the current macOS home directory")?;
-        let root = base.home_dir().join("Library/Application Support/open-hub");
+        let root = base.home_dir().join("Library/Application Support/gflick");
         Ok(PlatformPaths {
             install_root: root.clone(),
             private_bin: root.join("bin"),
-            private_app: root.join("Open Hub.app"),
-            user_applications: base.home_dir().join("Applications/Open Hub.app"),
+            private_app: root.join("GFlick.app"),
+            user_applications: base.home_dir().join("Applications/GFlick.app"),
             user_local_bin: base.home_dir().join(".local/bin"),
             state_file: root.join("install-state.json"),
             tray_ready: root.join("tray.ready"),
             tray_stop: root.join("tray.stop"),
             preferences: root.join("settings.json"),
-            logs: base.home_dir().join("Library/Logs/open-hub"),
+            logs: base.home_dir().join("Library/Logs/gflick"),
         })
     }
 
@@ -81,7 +81,7 @@ impl PlatformBackend for MacOsPlatform {
             }
         }
 
-        let link = paths.user_local_bin.join("open-hub");
+        let link = paths.user_local_bin.join("gflick");
         if let Ok(target) = fs::read_link(&link) {
             records.push(RegistrationRecord {
                 kind: RegistrationKind::CliExposure,
@@ -106,7 +106,7 @@ impl PlatformBackend for MacOsPlatform {
             Component::Agent,
             RegistrationKind::AgentStartup,
             AGENT_LABEL,
-            &request.paths.private_bin.join("open-hub-agent"),
+            &request.paths.private_bin.join("gflick-agent"),
             &["--background-worker"],
             request,
             previous,
@@ -116,10 +116,7 @@ impl PlatformBackend for MacOsPlatform {
             Component::Tray,
             RegistrationKind::TrayStartup,
             TRAY_LABEL,
-            &request
-                .paths
-                .private_app
-                .join("Contents/MacOS/open-hub-tray"),
+            &request.paths.private_app.join("Contents/MacOS/gflick-tray"),
             &[],
             request,
             previous,
@@ -148,7 +145,7 @@ impl PlatformBackend for MacOsPlatform {
         }
 
         let paths = self.paths()?;
-        let link = paths.user_local_bin.join("open-hub");
+        let link = paths.user_local_bin.join("gflick");
         if let Some(record) = snapshot.record(RegistrationKind::CliExposure) {
             replace_symlink(Path::new(&record.value), &link)?;
         } else if link.symlink_metadata().is_ok() {
@@ -237,8 +234,8 @@ fn reconcile_cli(
     previous: &RegistrationState,
     output: &mut RegistrationState,
 ) -> Result<()> {
-    let link = request.paths.user_local_bin.join("open-hub");
-    let target = request.paths.private_bin.join("open-hub");
+    let link = request.paths.user_local_bin.join("gflick");
+    let target = request.paths.private_bin.join("gflick");
     if request.components.contains(&Component::Cli) {
         let owned = match fs::read_link(&link) {
             Ok(existing) if existing == target => previous
@@ -453,23 +450,23 @@ mod tests {
 
     #[test]
     fn launch_agents_are_independent_and_escape_paths() {
-        let logs = Path::new("/Users/a&b/Library/Logs/open-hub");
+        let logs = Path::new("/Users/a&b/Library/Logs/gflick");
         let agent = launch_agent_contents(
             AGENT_LABEL,
-            Path::new("/Users/a&b/open-hub-agent"),
+            Path::new("/Users/a&b/gflick-agent"),
             &["--background-worker"],
             logs,
         );
         let tray = launch_agent_contents(
             TRAY_LABEL,
-            Path::new("/Users/a&b/Open Hub.app/Contents/MacOS/open-hub-tray"),
+            Path::new("/Users/a&b/GFlick.app/Contents/MacOS/gflick-tray"),
             &[],
             logs,
         );
         assert!(agent.contains("--background-worker"));
         assert!(!agent.contains(TRAY_LABEL));
         assert!(!tray.contains(AGENT_LABEL));
-        assert!(agent.contains("/Users/a&amp;b/open-hub-agent"));
+        assert!(agent.contains("/Users/a&amp;b/gflick-agent"));
     }
 
     #[test]

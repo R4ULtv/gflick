@@ -1,6 +1,6 @@
-# Releasing Open Hub
+# Releasing GFlick
 
-Open Hub releases are tag-driven prereleases containing unsigned, experimental
+GFlick releases are tag-driven prereleases containing unsigned, experimental
 Windows x86_64 and Apple Silicon macOS bundles. The setup bootstrapper only verifies
 and installs an extracted local bundle; it never downloads release code.
 
@@ -16,7 +16,7 @@ Run the complete local gates from a clean checkout:
 cargo fmt --all -- --check
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo build --release --locked -p open-hub-agent -p open-hub-tray -p open-hub-cli -p open-hub-setup -p open-hub-probe -p open-hub-bench
+cargo build --release --locked -p gflick-agent -p gflick-tray -p gflick-cli -p gflick-setup -p gflick-probe -p gflick-bench
 git diff --check
 ```
 
@@ -49,7 +49,7 @@ After merging the validated version change, create and push `v<version>` from th
 exact commit to release:
 
 ```sh
-git tag -a v0.1.0 -m "Open Hub v0.1.0"
+git tag -a v0.1.0 -m "GFlick v0.1.0"
 git push origin v0.1.0
 ```
 
@@ -57,10 +57,10 @@ Ordinary pushes and pull requests never publish. The tag workflow builds the sam
 packages on both supported platforms and creates these five prerelease assets:
 
 ```text
-open-hub-0.1.0-windows-x86_64.zip
-open-hub-0.1.0-macos-aarch64.tar.gz
-open-hub-devtools-0.1.0-windows-x86_64.zip
-open-hub-devtools-0.1.0-macos-aarch64.tar.gz
+gflick-0.1.0-windows-x86_64.zip
+gflick-0.1.0-macos-aarch64.tar.gz
+gflick-devtools-0.1.0-windows-x86_64.zip
+gflick-devtools-0.1.0-macos-aarch64.tar.gz
 SHA256SUMS
 ```
 
@@ -77,7 +77,7 @@ sha256sum -c SHA256SUMS
 ```
 
 On macOS use `shasum -a 256` on each archive and compare it with `SHA256SUMS`. Extract
-each user archive and run `open-hub-setup verify-bundle` before a clean per-user install.
+each user archive and run `gflick-setup verify-bundle` before a clean per-user install.
 Confirm install, status, modify, repair, and uninstall on Windows 10/11 x86_64 and on
 Apple Silicon macOS. Also inspect archive listings to ensure Probe and Bench occur only
 in developer archives and that the macOS tray contains its executable, `Info.plist`,
@@ -88,5 +88,5 @@ and icon.
 If validation fails, do not reuse or move the tag. Delete the prerelease assets and
 release, delete the remote tag, and document why it was yanked. Fix the issue, bump to
 a new patch version, repeat all gates, and publish a new tag. Users who already
-installed can run `open-hub-setup uninstall`; normal uninstall retains preferences and
+installed can run `gflick-setup uninstall`; normal uninstall retains preferences and
 logs unless they explicitly request user-data removal.

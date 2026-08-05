@@ -640,7 +640,7 @@ fn artifact_path(target: &Path, suffix: &str) -> Result<PathBuf> {
     let filename = target
         .file_name()
         .context("managed file path has no filename")?;
-    Ok(target.with_file_name(format!(".{}.open-hub-{suffix}", filename.to_string_lossy())))
+    Ok(target.with_file_name(format!(".{}.gflick-{suffix}", filename.to_string_lossy())))
 }
 
 fn retry_rename(from: &Path, to: &Path) -> Result<()> {
@@ -832,7 +832,7 @@ mod tests {
         fs::create_dir_all(&paths.private_bin).unwrap();
         let source = temp.path().join("new-agent");
         fs::write(&source, b"new").unwrap();
-        let destination = paths.private_bin.join("open-hub-agent");
+        let destination = paths.private_bin.join("gflick-agent");
         fs::write(&destination, b"old").unwrap();
         let old_regs = RegistrationState {
             records: vec![RegistrationRecord {
@@ -857,7 +857,7 @@ mod tests {
                 InstalledFile {
                     component: None,
                     root: InstallRoot::PrivateBin,
-                    destination: "open-hub-setup".into(),
+                    destination: "gflick-setup".into(),
                     length: 3,
                     sha256: "10".repeat(32),
                     executable: true,
@@ -865,7 +865,7 @@ mod tests {
                 InstalledFile {
                     component: Some(Component::Agent),
                     root: InstallRoot::PrivateBin,
-                    destination: "open-hub-agent".into(),
+                    destination: "gflick-agent".into(),
                     length: 3,
                     sha256: "11".repeat(32),
                     executable: true,
@@ -882,7 +882,7 @@ mod tests {
                 InstalledFile {
                     component: None,
                     root: InstallRoot::PrivateBin,
-                    destination: "open-hub-setup".into(),
+                    destination: "gflick-setup".into(),
                     length: 3,
                     sha256: "10".repeat(32),
                     executable: true,
@@ -890,7 +890,7 @@ mod tests {
                 InstalledFile {
                     component: Some(Component::Agent),
                     root: InstallRoot::PrivateBin,
-                    destination: "open-hub-agent".into(),
+                    destination: "gflick-agent".into(),
                     length: 3,
                     sha256: "00".repeat(32),
                     executable: true,
@@ -962,7 +962,7 @@ mod tests {
         let nested = platform
             .paths
             .user_applications
-            .join("Open Hub.app/Contents/Resources/icon.icns");
+            .join("GFlick.app/Contents/Resources/icon.icns");
         plan.files.push(PreparedFile {
             component: Some(Component::Settings),
             source: nested_source,
@@ -976,7 +976,7 @@ mod tests {
         plan.new_state.files.push(InstalledFile {
             component: Some(Component::Settings),
             root: InstallRoot::UserApplications,
-            destination: "Open Hub.app/Contents/Resources/icon.icns".into(),
+            destination: "GFlick.app/Contents/Resources/icon.icns".into(),
             length: 4,
             sha256: "33".repeat(32),
             executable: false,
@@ -994,7 +994,7 @@ mod tests {
         for (source_name, destination, bytes, executable) in [
             (
                 "tray-source",
-                "Contents/MacOS/open-hub-tray",
+                "Contents/MacOS/gflick-tray",
                 b"tray".as_slice(),
                 true,
             ),
@@ -1037,7 +1037,7 @@ mod tests {
                 platform
                     .paths
                     .private_app
-                    .join("Contents/MacOS/open-hub-tray")
+                    .join("Contents/MacOS/gflick-tray")
             )
             .unwrap(),
             b"tray"
@@ -1086,8 +1086,8 @@ mod tests {
         let installed = RegistrationState {
             records: vec![RegistrationRecord {
                 kind: RegistrationKind::SettingsLauncher,
-                location: "Open Hub.lnk".into(),
-                value: "open-hub-settings.exe".into(),
+                location: "GFlick.lnk".into(),
+                value: "gflick-settings.exe".into(),
                 owned: true,
             }],
             path_warning: None,
@@ -1102,7 +1102,7 @@ mod tests {
         let changed = RegistrationState {
             records: vec![RegistrationRecord {
                 kind: RegistrationKind::SettingsLauncher,
-                location: "Open Hub.lnk".into(),
+                location: "GFlick.lnk".into(),
                 value: "user-settings.exe".into(),
                 owned: false,
             }],
@@ -1265,7 +1265,7 @@ mod tests {
         let managed = platform
             .paths
             .user_applications
-            .join("Contents/MacOS/Open Hub");
+            .join("Contents/MacOS/GFlick");
         fs::create_dir_all(managed.parent().unwrap()).unwrap();
         fs::write(&managed, b"settings").unwrap();
         let sentinel = platform.paths.user_applications.join("unrelated.txt");

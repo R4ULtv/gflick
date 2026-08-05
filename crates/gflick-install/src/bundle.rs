@@ -171,7 +171,7 @@ mod tests {
 
     fn create_bundle() -> (tempfile::TempDir, BundleManifest) {
         let root = tempfile::tempdir().unwrap();
-        write_payload(&root.path().join("open-hub-setup.exe"), b"setup", true);
+        write_payload(&root.path().join("gflick-setup.exe"), b"setup", true);
         write_payload(&root.path().join("payload/agent.exe"), b"agent", true);
         let make =
             |source: &str, root: InstallRoot, destination: &str, bytes: &[u8], executable: bool| {
@@ -186,11 +186,7 @@ mod tests {
             };
         let platform = Platform::current().unwrap();
         let tray_files = if platform == Platform::Macos {
-            write_payload(
-                &root.path().join("payload/tray/open-hub-tray"),
-                b"tray",
-                true,
-            );
+            write_payload(&root.path().join("payload/tray/gflick-tray"), b"tray", true);
             write_payload(
                 &root.path().join("payload/tray/Info.plist"),
                 b"plist",
@@ -203,9 +199,9 @@ mod tests {
             );
             vec![
                 make(
-                    "payload/tray/open-hub-tray",
+                    "payload/tray/gflick-tray",
                     InstallRoot::PrivateApp,
-                    "Contents/MacOS/open-hub-tray",
+                    "Contents/MacOS/gflick-tray",
                     b"tray",
                     true,
                 ),
@@ -229,7 +225,7 @@ mod tests {
             vec![make(
                 "payload/tray.exe",
                 InstallRoot::PrivateBin,
-                "open-hub-tray.exe",
+                "gflick-tray.exe",
                 b"tray",
                 true,
             )]
@@ -242,9 +238,9 @@ mod tests {
             required: BTreeSet::from([Component::Agent]),
             defaults: BTreeSet::from([Component::Agent, Component::Tray]),
             setup: make(
-                "open-hub-setup.exe",
+                "gflick-setup.exe",
                 InstallRoot::PrivateBin,
-                "open-hub-setup.exe",
+                "gflick-setup.exe",
                 b"setup",
                 true,
             ),
@@ -255,7 +251,7 @@ mod tests {
                         files: vec![make(
                             "payload/agent.exe",
                             InstallRoot::PrivateBin,
-                            "open-hub-agent.exe",
+                            "gflick-agent.exe",
                             b"agent",
                             true,
                         )],

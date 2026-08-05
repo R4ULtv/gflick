@@ -1,11 +1,11 @@
 # Agent IPC protocol
 
 Protocol version 1 uses newline-delimited JSON over an OS-local socket. Windows uses
-the `open-hub-agent-v1.sock` named-pipe namespace. macOS uses the same filename under
+the `gflick-agent-v1.sock` named-pipe namespace. macOS uses the same filename under
 the process's per-user temporary directory. This is local IPC rather than a network
 listener.
 
-The canonical Rust types are in `crates/open-hub-protocol`. A settings application
+The canonical Rust types are in `crates/gflick-protocol`. A settings application
 should depend on that crate when possible instead of duplicating the JSON schema.
 
 ## Message flow
@@ -46,7 +46,7 @@ Supported live-setting operations are:
 
 Successful setting commands return a fresh complete device snapshot. The agent also
 broadcasts a `settings_changed` event so other open clients can refresh immediately.
-All validation and HID++ read-back checks remain inside `open-hub-core`.
+All validation and HID++ read-back checks remain inside `gflick-core`.
 
 Each device summary contains two different identities:
 
@@ -117,7 +117,7 @@ A connection that sends `subscribe` becomes an event-only stream after receiving
 For manual inspection:
 
 ```powershell
-cargo run -q -p open-hub-agent -- --events
+cargo run -q -p gflick-agent -- --events
 ```
 
 Use `--event-count 1` to exit after one event during automated diagnostics.

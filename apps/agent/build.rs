@@ -5,15 +5,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed={}", icon.display());
 
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        let icon = icon
-            .to_str()
-            .ok_or("Open Hub icon path is not valid UTF-8")?;
+        let icon = icon.to_str().ok_or("GFlick icon path is not valid UTF-8")?;
         let mut resource = winresource::WindowsResource::new();
         resource
             .set_icon(icon)
-            .set("ProductName", "Open Hub")
-            .set("FileDescription", "Open Hub background agent")
-            .set("OriginalFilename", "open-hub-agent.exe");
+            .set("ProductName", "GFlick")
+            .set("FileDescription", "GFlick background agent")
+            .set("OriginalFilename", "gflick-agent.exe");
         resource.compile()?;
     }
     Ok(())

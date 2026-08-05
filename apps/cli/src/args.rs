@@ -1,9 +1,9 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
-use open_hub_protocol::RgbColor;
+use gflick_protocol::RgbColor;
 
 #[derive(Debug, Parser)]
-#[command(name = "open-hub", version, propagate_version = true)]
+#[command(name = "gflick", version, propagate_version = true)]
 pub struct Cli {
     #[arg(long, value_enum, default_value_t = OutputFormat::Human, global = true)]
     pub format: OutputFormat,
@@ -198,13 +198,13 @@ mod tests {
 
     #[test]
     fn parses_representative_commands() {
-        assert!(Cli::try_parse_from(["open-hub", "status"]).is_ok());
-        assert!(Cli::try_parse_from(["open-hub", "device", "list"]).is_ok());
-        assert!(Cli::try_parse_from(["open-hub", "device", "show", "mouse"]).is_ok());
-        assert!(Cli::try_parse_from(["open-hub", "device", "set", "dpi", "1600"]).is_ok());
+        assert!(Cli::try_parse_from(["gflick", "status"]).is_ok());
+        assert!(Cli::try_parse_from(["gflick", "device", "list"]).is_ok());
+        assert!(Cli::try_parse_from(["gflick", "device", "show", "mouse"]).is_ok());
+        assert!(Cli::try_parse_from(["gflick", "device", "set", "dpi", "1600"]).is_ok());
         assert!(
             Cli::try_parse_from([
-                "open-hub",
+                "gflick",
                 "device",
                 "set",
                 "mouse",
@@ -216,11 +216,11 @@ mod tests {
             .is_ok()
         );
         assert!(
-            Cli::try_parse_from(["open-hub", "device", "set", "surface-mode", "automatic"]).is_ok()
+            Cli::try_parse_from(["gflick", "device", "set", "surface-mode", "automatic"]).is_ok()
         );
         assert!(
             Cli::try_parse_from([
-                "open-hub",
+                "gflick",
                 "device",
                 "set",
                 "bhop",
@@ -232,14 +232,14 @@ mod tests {
         );
         assert!(
             Cli::try_parse_from([
-                "open-hub", "device", "set", "lighting", "fixed", "--color", "a1B2c3"
+                "gflick", "device", "set", "lighting", "fixed", "--color", "a1B2c3"
             ])
             .is_ok()
         );
-        assert!(Cli::try_parse_from(["open-hub", "device", "use", "onboard-profile", "3"]).is_ok());
-        assert!(Cli::try_parse_from(["open-hub", "events", "--count", "1"]).is_ok());
-        assert!(Cli::try_parse_from(["open-hub", "events", "--count", "0"]).is_err());
-        assert!(Cli::try_parse_from(["open-hub", "completions", "powershell"]).is_ok());
+        assert!(Cli::try_parse_from(["gflick", "device", "use", "onboard-profile", "3"]).is_ok());
+        assert!(Cli::try_parse_from(["gflick", "events", "--count", "1"]).is_ok());
+        assert!(Cli::try_parse_from(["gflick", "events", "--count", "0"]).is_err());
+        assert!(Cli::try_parse_from(["gflick", "completions", "powershell"]).is_ok());
     }
 
     #[test]

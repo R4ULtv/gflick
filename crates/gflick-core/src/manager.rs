@@ -268,8 +268,8 @@ mod tests {
 
     #[test]
     fn fallback_identity_hash_is_stable() {
-        assert_eq!(fnv1a64(b"open-hub"), fnv1a64(b"open-hub"));
-        assert_ne!(fnv1a64(b"open-hub"), fnv1a64(b"other"));
+        assert_eq!(fnv1a64(b"gflick"), fnv1a64(b"gflick"));
+        assert_ne!(fnv1a64(b"gflick"), fnv1a64(b"other"));
     }
 
     #[test]

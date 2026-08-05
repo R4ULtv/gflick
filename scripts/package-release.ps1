@@ -42,12 +42,12 @@ if ($SettingsAppDir) {
 }
 
 $requiredBinaries = @(
-    "open-hub-setup.exe",
-    "open-hub-agent.exe",
-    "open-hub-tray.exe",
-    "open-hub.exe",
-    "open-hub-probe.exe",
-    "open-hub-bench.exe"
+    "gflick-setup.exe",
+    "gflick-agent.exe",
+    "gflick-tray.exe",
+    "gflick.exe",
+    "gflick-probe.exe",
+    "gflick-bench.exe"
 )
 foreach ($name in $requiredBinaries) {
     $candidate = Join-Path $binaryRoot $name
@@ -56,7 +56,7 @@ foreach ($name in $requiredBinaries) {
     }
 }
 
-$temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("open-hub-package-" + [Guid]::NewGuid().ToString("N"))
+$temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("gflick-package-" + [Guid]::NewGuid().ToString("N"))
 $userStage = Join-Path $temporaryRoot "user"
 $developerStage = Join-Path $temporaryRoot "devtools"
 
@@ -91,24 +91,24 @@ try {
     [IO.Directory]::CreateDirectory((Join-Path $userStage "payload")) | Out-Null
     [IO.Directory]::CreateDirectory($developerStage) | Out-Null
 
-    $setupPath = Join-Path $userStage "open-hub-setup.exe"
-    $agentPath = Join-Path $userStage "payload/open-hub-agent.exe"
-    $trayPath = Join-Path $userStage "payload/open-hub-tray.exe"
-    $cliPath = Join-Path $userStage "payload/open-hub.exe"
-    Copy-ReleaseFile "open-hub-setup.exe" $setupPath
-    Copy-ReleaseFile "open-hub-agent.exe" $agentPath
-    Copy-ReleaseFile "open-hub-tray.exe" $trayPath
-    Copy-ReleaseFile "open-hub.exe" $cliPath
+    $setupPath = Join-Path $userStage "gflick-setup.exe"
+    $agentPath = Join-Path $userStage "payload/gflick-agent.exe"
+    $trayPath = Join-Path $userStage "payload/gflick-tray.exe"
+    $cliPath = Join-Path $userStage "payload/gflick.exe"
+    Copy-ReleaseFile "gflick-setup.exe" $setupPath
+    Copy-ReleaseFile "gflick-agent.exe" $agentPath
+    Copy-ReleaseFile "gflick-tray.exe" $trayPath
+    Copy-ReleaseFile "gflick.exe" $cliPath
 
     $components = [ordered]@{
         agent = [ordered]@{ files = @(
-            (New-FileRecord $agentPath "payload/open-hub-agent.exe" "private_bin" "open-hub-agent.exe" $true)
+            (New-FileRecord $agentPath "payload/gflick-agent.exe" "private_bin" "gflick-agent.exe" $true)
         ) }
         tray = [ordered]@{ files = @(
-            (New-FileRecord $trayPath "payload/open-hub-tray.exe" "private_bin" "open-hub-tray.exe" $true)
+            (New-FileRecord $trayPath "payload/gflick-tray.exe" "private_bin" "gflick-tray.exe" $true)
         ) }
         cli = [ordered]@{ files = @(
-            (New-FileRecord $cliPath "payload/open-hub.exe" "private_bin" "open-hub.exe" $true)
+            (New-FileRecord $cliPath "payload/gflick.exe" "private_bin" "gflick.exe" $true)
         ) }
     }
     $defaults = @("agent", "tray")
@@ -160,7 +160,7 @@ try {
         arch = "x86_64"
         required = @("agent")
         defaults = $defaults
-        setup = New-FileRecord $setupPath "open-hub-setup.exe" "private_bin" "open-hub-setup.exe" $true
+        setup = New-FileRecord $setupPath "gflick-setup.exe" "private_bin" "gflick-setup.exe" $true
         components = $components
     }
     $json = $manifest | ConvertTo-Json -Depth 12
@@ -169,21 +169,21 @@ try {
 
     & $setupPath verify-bundle $userStage
     if ($LASTEXITCODE -ne 0) {
-        throw "open-hub-setup verify-bundle failed with exit code $LASTEXITCODE"
+        throw "gflick-setup verify-bundle failed with exit code $LASTEXITCODE"
     }
 
-    Copy-ReleaseFile "open-hub-probe.exe" (Join-Path $developerStage "open-hub-probe.exe")
-    Copy-ReleaseFile "open-hub-bench.exe" (Join-Path $developerStage "open-hub-bench.exe")
+    Copy-ReleaseFile "gflick-probe.exe" (Join-Path $developerStage "gflick-probe.exe")
+    Copy-ReleaseFile "gflick-bench.exe" (Join-Path $developerStage "gflick-bench.exe")
     $warning = @"
-# Open Hub developer tools
+# GFlick developer tools
 
-These tools are not part of the user installation. `open-hub-probe` opens HID
-devices directly and must not run at the same time as `open-hub-agent`.
+These tools are not part of the user installation. `gflick-probe` opens HID
+devices directly and must not run at the same time as `gflick-agent`.
 "@
     [IO.File]::WriteAllText((Join-Path $developerStage "README.md"), $warning.TrimStart() + [Environment]::NewLine, $utf8WithoutBom)
 
-    $userArchiveName = "open-hub-$Version-windows-x86_64.zip"
-    $developerArchiveName = "open-hub-devtools-$Version-windows-x86_64.zip"
+    $userArchiveName = "gflick-$Version-windows-x86_64.zip"
+    $developerArchiveName = "gflick-devtools-$Version-windows-x86_64.zip"
     $userArchive = Join-Path $outputRoot $userArchiveName
     $developerArchive = Join-Path $outputRoot $developerArchiveName
     Compress-Archive -Path (Join-Path $userStage "*") -DestinationPath $userArchive -Force

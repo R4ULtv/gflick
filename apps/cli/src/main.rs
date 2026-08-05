@@ -31,7 +31,7 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Completions { shell } => {
-            clap_complete::generate(shell, &mut Cli::command(), "open-hub", &mut io::stdout());
+            clap_complete::generate(shell, &mut Cli::command(), "gflick", &mut io::stdout());
             Ok(())
         }
         Command::Events { count } => events(cli.format, count),
@@ -43,7 +43,7 @@ fn run() -> Result<()> {
 }
 
 fn events(format: args::OutputFormat, count: Option<u64>) -> Result<()> {
-    let mut subscription = open_hub_client::EventSubscription::connect().map_err(ipc_context)?;
+    let mut subscription = gflick_client::EventSubscription::connect().map_err(ipc_context)?;
     let mut output = io::stdout().lock();
     let mut received = 0u64;
     while count.is_none_or(|count| received < count) {

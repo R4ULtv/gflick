@@ -16,7 +16,7 @@ const REPORT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "open-hub-bench",
+    name = "gflick-bench",
     about = "Low-overhead benchmark recorder for resident desktop processes"
 )]
 struct Cli {
@@ -908,12 +908,12 @@ mod tests {
     #[test]
     fn normalizes_windows_and_unix_process_names() {
         assert_eq!(
-            normalize_process_name("Open-Hub-Agent.EXE".as_ref()),
-            "open-hub-agent"
+            normalize_process_name("GFlick-Agent.EXE".as_ref()),
+            "gflick-agent"
         );
         assert_eq!(
-            normalize_process_name("open-hub-agent".as_ref()),
-            "open-hub-agent"
+            normalize_process_name("gflick-agent".as_ref()),
+            "gflick-agent"
         );
     }
 

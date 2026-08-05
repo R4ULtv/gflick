@@ -125,7 +125,7 @@ pub trait PlatformBackend {
         // A connection failure means the agent is already offline. If it is
         // available, the typed request gives it a chance to release HID and
         // lighting ownership before executable replacement.
-        let _ = open_hub_client::request(open_hub_protocol::RequestCommand::Shutdown);
+        let _ = gflick_client::request(gflick_protocol::RequestCommand::Shutdown);
         Ok(())
     }
 
@@ -241,7 +241,7 @@ pub type NativePlatform = windows::WindowsPlatform;
 pub type NativePlatform = macos::MacOsPlatform;
 
 #[cfg(not(any(windows, target_os = "macos")))]
-compile_error!("open-hub-install supports only Windows and Apple Silicon macOS");
+compile_error!("gflick-install supports only Windows and Apple Silicon macOS");
 
 #[cfg(test)]
 mod tests {
@@ -250,21 +250,21 @@ mod tests {
     #[test]
     fn closed_install_roots_resolve_only_inside_platform_paths() {
         let paths = PlatformPaths {
-            install_root: PathBuf::from("/profile/open-hub"),
-            private_bin: PathBuf::from("/profile/open-hub/bin"),
-            private_app: PathBuf::from("/profile/open-hub/app"),
+            install_root: PathBuf::from("/profile/gflick"),
+            private_bin: PathBuf::from("/profile/gflick/bin"),
+            private_app: PathBuf::from("/profile/gflick/app"),
             user_applications: PathBuf::from("/profile/Applications"),
             user_local_bin: PathBuf::from("/profile/.local/bin"),
-            state_file: PathBuf::from("/profile/open-hub/install-state.json"),
-            tray_ready: PathBuf::from("/profile/open-hub/tray.ready"),
-            tray_stop: PathBuf::from("/profile/open-hub/tray.stop"),
-            preferences: PathBuf::from("/profile/open-hub/settings.json"),
-            logs: PathBuf::from("/profile/open-hub/logs"),
+            state_file: PathBuf::from("/profile/gflick/install-state.json"),
+            tray_ready: PathBuf::from("/profile/gflick/tray.ready"),
+            tray_stop: PathBuf::from("/profile/gflick/tray.stop"),
+            preferences: PathBuf::from("/profile/gflick/settings.json"),
+            logs: PathBuf::from("/profile/gflick/logs"),
         };
 
         assert_eq!(
             paths.resolve(InstallRoot::PrivateBin),
-            std::path::Path::new("/profile/open-hub/bin")
+            std::path::Path::new("/profile/gflick/bin")
         );
         assert_eq!(
             paths.resolve(InstallRoot::UserApplications),

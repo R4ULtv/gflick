@@ -1,14 +1,14 @@
 # Feature coverage
 
 This matrix distinguishes complete end-user mouse functionality from HID++ entries
-that merely happen to be advertised by the firmware. `open-hub-probe features` is the
+that merely happen to be advertised by the firmware. `gflick-probe features` is the
 runtime source of truth and prints the same classification for any connected device.
 
 The complete matrix is hardware-validated on Windows and Apple Silicon macOS. Intel
 macOS is intentionally unsupported. No onboard flash write has been sent from macOS;
 cross-platform write validation used reversible live settings only.
 
-| End-user capability | PRO X Superlight | PRO X Superlight 2 | G305 | Open Hub status |
+| End-user capability | PRO X Superlight | PRO X Superlight 2 | G305 | GFlick status |
 |---|---:|---:|---:|---|
 | Device name, model, unit ID, firmware | Yes | Yes | Yes | Complete |
 | Battery percentage and charge state | Yes | Yes | Yes (`0x1000`) | Complete |
@@ -57,7 +57,7 @@ The original Superlight accepted an identical 255-byte write to disabled profile
 (sector `0x0005`) and returned the same bytes with valid CRC `0x519b`. The writer uses
 an optimistic stale-data check, byte-preserving edits, CRC regeneration, read-back
 verification, and automatic rollback. Formats `0x03`, `0x04`, and `0x07` pass encoder
-unit tests. A temporary name change to `OPEN_HUB_TEST` was semantically and byte-wise
+unit tests. A temporary name change to `GFLICK_TEST` was semantically and byte-wise
 verified before all 255 original bytes were restored with CRC `0x519b`. Profile 5 also
 passed an enable/disable directory round trip without becoming active. At the owner's
 request, no profile write was sent to the G305 or Superlight 2.

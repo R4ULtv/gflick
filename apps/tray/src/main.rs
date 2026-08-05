@@ -12,9 +12,9 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use directories::BaseDirs;
+use gflick_client::EventSubscription;
+use gflick_protocol::{AgentEvent, DeviceState, DeviceSummary, RequestCommand, ResponseData};
 use model::TrayState;
-use open_hub_client::EventSubscription;
-use open_hub_protocol::{AgentEvent, DeviceState, DeviceSummary, RequestCommand, ResponseData};
 use tray_icon::{
     Icon, TrayIcon, TrayIconBuilder,
     menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
@@ -26,8 +26,8 @@ use winit::{
     window::WindowId,
 };
 
-const REFRESH_MENU_ID: &str = "open-hub-refresh";
-const QUIT_MENU_ID: &str = "open-hub-quit";
+const REFRESH_MENU_ID: &str = "gflick-refresh";
+const QUIT_MENU_ID: &str = "gflick-quit";
 const RECONNECT_DELAY: Duration = Duration::from_secs(5);
 const STOP_REQUEST_POLL: Duration = Duration::from_millis(100);
 
@@ -74,7 +74,7 @@ impl TrayApp {
             .with_menu_on_left_click(true)
             .with_tooltip(self.state.tooltip())
             .build()
-            .context("failed to create the Open Hub tray icon")?;
+            .context("failed to create the GFlick tray icon")?;
         self.tray = Some(tray);
         Ok(())
     }
@@ -115,7 +115,7 @@ impl ApplicationHandler<UserEvent> for TrayApp {
         if self.tray.is_none()
             && let Err(error) = self.create_tray()
         {
-            eprintln!("Open Hub tray failed to start: {error:#}");
+            eprintln!("GFlick tray failed to start: {error:#}");
             event_loop.exit();
             return;
         }
@@ -189,7 +189,7 @@ fn main() -> Result<()> {
     let mut app = TrayApp::new(proxy, online_icon, offline_icon);
     let result = event_loop
         .run_app(&mut app)
-        .context("Open Hub tray event loop failed");
+        .context("GFlick tray event loop failed");
     stop_handshake.disarm()?;
     result
 }
@@ -205,7 +205,7 @@ impl TrayStopHandshake {
     fn arm_default() -> Result<Self> {
         let base =
             BaseDirs::new().context("could not determine the per-user tray data directory")?;
-        let root = base.data_local_dir().join("open-hub");
+        let root = base.data_local_dir().join("gflick");
         let generation = format!(
             "{}-{}",
             std::process::id(),
@@ -304,7 +304,7 @@ fn remove_if_token_matches(path: &Path, generation: &str) -> Result<()> {
 
 fn spawn_stop_request_watcher(proxy: EventLoopProxy<UserEvent>, handshake: TrayStopHandshake) {
     thread::Builder::new()
-        .name("open-hub-tray-stop".to_owned())
+        .name("gflick-tray-stop".to_owned())
         .spawn(move || stop_request_worker(proxy, &handshake))
         .expect("failed to start tray stop-request watcher");
 }
@@ -338,7 +338,7 @@ fn configure_event_loop(_builder: &mut winit::event_loop::EventLoopBuilder<UserE
 
 fn spawn_agent_worker(proxy: EventLoopProxy<UserEvent>) {
     thread::Builder::new()
-        .name("open-hub-tray-ipc".to_owned())
+        .name("gflick-tray-ipc".to_owned())
         .spawn(move || agent_worker(proxy))
         .expect("failed to start tray IPC worker");
 }
@@ -397,7 +397,7 @@ fn agent_worker(proxy: EventLoopProxy<UserEvent>) {
 
 fn spawn_snapshot(proxy: EventLoopProxy<UserEvent>) {
     let _ = thread::Builder::new()
-        .name("open-hub-tray-refresh".to_owned())
+        .name("gflick-tray-refresh".to_owned())
         .spawn(move || {
             let result = query_snapshot().map_err(|error| format!("{error:#}"));
             let _ = proxy.send_event(UserEvent::Snapshot(result));
@@ -406,17 +406,17 @@ fn spawn_snapshot(proxy: EventLoopProxy<UserEvent>) {
 
 fn spawn_application_shutdown(proxy: EventLoopProxy<UserEvent>) {
     let _ = thread::Builder::new()
-        .name("open-hub-tray-quit".to_owned())
+        .name("gflick-tray-quit".to_owned())
         .spawn(move || {
             // A disconnected agent already means there is no background component to stop.
             // Either way, the tray should honor the user's application-wide quit request.
-            let _ = open_hub_client::request(RequestCommand::Shutdown);
+            let _ = gflick_client::request(RequestCommand::Shutdown);
             let _ = proxy.send_event(UserEvent::QuitCompleted);
         });
 }
 
 fn query_snapshot() -> Result<DeviceSnapshot> {
-    let ResponseData::Devices { devices } = open_hub_client::request(RequestCommand::ListDevices)?
+    let ResponseData::Devices { devices } = gflick_client::request(RequestCommand::ListDevices)?
     else {
         bail!("agent returned an unexpected device-list response");
     };
@@ -424,7 +424,7 @@ fn query_snapshot() -> Result<DeviceSnapshot> {
         .into_iter()
         .map(|summary| {
             let state = if summary.ready {
-                match open_hub_client::request(RequestCommand::GetDevice {
+                match gflick_client::request(RequestCommand::GetDevice {
                     device_id: summary.id.clone(),
                 }) {
                     Ok(ResponseData::Device { device }) => Some(*device),
@@ -489,12 +489,7 @@ fn build_menu(state: &TrayState, last_error: Option<&str>) -> Result<Menu> {
 
     menu.append(&PredefinedMenuItem::separator())?;
     menu.append(&MenuItem::with_id(REFRESH_MENU_ID, "Refresh", true, None))?;
-    menu.append(&MenuItem::with_id(
-        QUIT_MENU_ID,
-        "Quit Open Hub",
-        true,
-        None,
-    ))?;
+    menu.append(&MenuItem::with_id(QUIT_MENU_ID, "Quit GFlick", true, None))?;
     Ok(menu)
 }
 
@@ -510,7 +505,7 @@ fn load_icons() -> Result<(Icon, Icon)> {
         image::ImageFormat::Ico,
     );
     let image = image::load_from_memory_with_format(icon_bytes, icon_format)
-        .context("failed to decode the embedded Open Hub icon")?
+        .context("failed to decode the embedded GFlick icon")?
         .into_rgba8();
     let (width, height) = image.dimensions();
     let online = image.into_raw();

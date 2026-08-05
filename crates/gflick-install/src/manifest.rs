@@ -282,7 +282,7 @@ impl BundleManifest {
             .expect("availability checked before macOS tray validation")
             .files;
         for (destination, executable) in [
-            ("Contents/MacOS/open-hub-tray", true),
+            ("Contents/MacOS/gflick-tray", true),
             ("Contents/Info.plist", false),
             ("Contents/Resources/favicon.icns", false),
         ] {
@@ -412,9 +412,9 @@ mod tests {
         let tray_files = if platform == Platform::Macos {
             vec![
                 file_at(
-                    "payload/tray/open-hub-tray",
+                    "payload/tray/gflick-tray",
                     InstallRoot::PrivateApp,
-                    "Contents/MacOS/open-hub-tray",
+                    "Contents/MacOS/gflick-tray",
                     true,
                 ),
                 file_at(
@@ -431,7 +431,7 @@ mod tests {
                 ),
             ]
         } else {
-            vec![file("payload/open-hub-tray.exe", "open-hub-tray.exe")]
+            vec![file("payload/gflick-tray.exe", "gflick-tray.exe")]
         };
         BundleManifest {
             schema: BUNDLE_SCHEMA,
@@ -440,19 +440,19 @@ mod tests {
             arch: Architecture::current().unwrap(),
             required: BTreeSet::from([Component::Agent]),
             defaults: BTreeSet::from([Component::Agent, Component::Tray]),
-            setup: file("open-hub-setup.exe", "open-hub-setup.exe"),
+            setup: file("gflick-setup.exe", "gflick-setup.exe"),
             components: BTreeMap::from([
                 (
                     Component::Agent,
                     ComponentManifest {
-                        files: vec![file("payload/open-hub-agent.exe", "open-hub-agent.exe")],
+                        files: vec![file("payload/gflick-agent.exe", "gflick-agent.exe")],
                     },
                 ),
                 (Component::Tray, ComponentManifest { files: tray_files }),
                 (
                     Component::Cli,
                     ComponentManifest {
-                        files: vec![file("payload/open-hub.exe", "open-hub.exe")],
+                        files: vec![file("payload/gflick.exe", "gflick.exe")],
                     },
                 ),
             ]),
@@ -471,9 +471,9 @@ mod tests {
             ComponentManifest {
                 files: vec![
                     BundleFile {
-                        source: "payload/settings/Open Hub".into(),
+                        source: "payload/settings/GFlick".into(),
                         root: InstallRoot::UserApplications,
-                        destination: "Open Hub.app/Contents/MacOS/Open Hub".into(),
+                        destination: "GFlick.app/Contents/MacOS/GFlick".into(),
                         length: 3,
                         sha256: "11".repeat(32),
                         executable: true,
@@ -481,7 +481,7 @@ mod tests {
                     BundleFile {
                         source: "payload/settings/icon.icns".into(),
                         root: InstallRoot::UserApplications,
-                        destination: "Open Hub.app/Contents/Resources/icon.icns".into(),
+                        destination: "GFlick.app/Contents/Resources/icon.icns".into(),
                         length: 3,
                         sha256: "22".repeat(32),
                         executable: false,
@@ -573,9 +573,9 @@ mod tests {
         value.arch = Architecture::Aarch64;
         let tray = value.components.get_mut(&Component::Tray).unwrap();
         tray.files = vec![file_at(
-            "payload/tray/open-hub-tray",
+            "payload/tray/gflick-tray",
             InstallRoot::PrivateApp,
-            "Contents/MacOS/open-hub-tray",
+            "Contents/MacOS/gflick-tray",
             true,
         )];
         assert!(
@@ -622,7 +622,7 @@ mod tests {
         let maintenance = InstalledFile {
             component: None,
             root: InstallRoot::PrivateBin,
-            destination: "open-hub-setup".into(),
+            destination: "gflick-setup".into(),
             length: 1,
             sha256: "00".repeat(32),
             executable: true,
@@ -630,7 +630,7 @@ mod tests {
         let agent = InstalledFile {
             component: Some(Component::Agent),
             root: InstallRoot::PrivateBin,
-            destination: "open-hub-agent".into(),
+            destination: "gflick-agent".into(),
             length: 1,
             sha256: "11".repeat(32),
             executable: true,
@@ -657,13 +657,13 @@ mod tests {
         let mut unselected = valid.clone();
         let mut tray = agent.clone();
         tray.component = Some(Component::Tray);
-        tray.destination = "open-hub-tray".into();
+        tray.destination = "gflick-tray".into();
         unselected.files.push(tray);
         assert!(unselected.validate().is_err());
 
         let mut duplicate = valid;
         let mut repeated = maintenance;
-        repeated.destination = "OPEN-HUB-AGENT".into();
+        repeated.destination = "GFLICK-AGENT".into();
         duplicate.files.push(repeated);
         assert!(duplicate.validate().is_err());
     }
