@@ -38,11 +38,11 @@ three-run procedure are documented in the [benchmark README](apps/bench/README.m
 | `crates/open-hub-core` | HID/HID++ transport, discovery, capability models, settings, and onboard-profile APIs |
 | `crates/open-hub-client` | Typed synchronous client for requests and event subscriptions over local IPC |
 | `crates/open-hub-protocol` | Versioned serializable requests, responses, snapshots, and events for local IPC clients |
-| `apps/agent` | `open-hub-agent`, the device owner, monitor, settings store, and local IPC server |
-| `apps/cli` | `open-hub`, the user-facing scriptable IPC CLI for a running agent |
-| `apps/tray` | `open-hub-tray`, the native Windows notification-area and macOS menu-bar status client |
-| `apps/probe` | `open-hub-probe`, the developer-only direct-HID diagnostic and configuration CLI |
-| `apps/bench` | `open-hub-bench`, a development utility for recording and comparing resident-process resource usage |
+| [`apps/agent`](apps/agent/README.md) | `open-hub-agent`, the device owner, monitor, settings store, and local IPC server |
+| [`apps/cli`](apps/cli/README.md) | `open-hub`, the user-facing scriptable IPC CLI for a running agent |
+| [`apps/tray`](apps/tray/README.md) | `open-hub-tray`, the native Windows notification-area and macOS menu-bar status client |
+| [`apps/probe`](apps/probe/README.md) | `open-hub-probe`, the developer-only direct-HID diagnostic and configuration CLI |
+| [`apps/bench`](apps/bench/README.md) | `open-hub-bench`, a development utility for recording and comparing resident-process resource usage |
 | `docs` | Protocol, feature coverage, platform validation, and other project documentation |
 
 In normal use, the data flow is:
@@ -117,6 +117,9 @@ entire application; the separate processes are an internal implementation detail
 The [IPC protocol documentation](docs/ipc-protocol.md) covers message formats,
 events, persistence, and safety boundaries.
 
+See the [agent README](apps/agent/README.md) for startup installation, diagnostic
+modes, persistence, and runtime boundaries.
+
 ## Run the tray status app
 
 With the agent running, build and launch the native tray companion:
@@ -137,6 +140,9 @@ and the initial Windows idle measurement.
 developer-only direct-HID tool; use the IPC `open-hub` CLI for normal user control
 while the agent is running. Do not run Probe's direct-HID commands concurrently with
 the agent, tray, or `open-hub`, because they can compete for the same HID interface.
+
+See the [probe README](apps/probe/README.md) for its complete command groups,
+device-selection workflow, and hardware safety rules.
 
 For normal user control with the agent running, see the [CLI documentation](apps/cli/README.md).
 Use Probe for diagnostics and explicit dangerous profile-flash work:
