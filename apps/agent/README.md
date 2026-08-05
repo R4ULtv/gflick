@@ -41,23 +41,25 @@ See every option with:
 cargo run -q -p open-hub-agent -- --help
 ```
 
-## Per-user startup
+## Installation and per-user startup
 
-The current startup command installs the release agent and its sibling tray binary for the current user. Build both binaries before installing:
-
-```text
-cargo build --release -p open-hub-agent -p open-hub-tray
-./target/release/open-hub-agent startup install
-```
-
-Inspect or remove the registration with:
+The standalone setup bootstrapper installs and maintains the agent. The current
+manifest default also selects the optional tray:
 
 ```text
-./target/release/open-hub-agent startup status
-./target/release/open-hub-agent startup uninstall
+open-hub-setup install
 ```
 
-The installer expects `open-hub-agent` and `open-hub-tray` to be in the same build-output directory. Installation does not require administrator privileges.
+Install only the required headless service, or add the optional CLI:
+
+```text
+open-hub-setup install --components agent
+open-hub-setup modify --components agent,tray,cli
+```
+
+The setup path is per-user and does not require administrator privileges. It verifies
+the complete release bundle before stopping or replacing the agent. See the
+[installation guide](../../docs/installation.md) for status, repair, and removal.
 
 ## IPC diagnostics
 
@@ -99,3 +101,4 @@ On startup, the agent loads persisted settings, discovers devices, and applies c
 - [User-facing CLI](../cli/README.md)
 - [Tray application](../tray/README.md)
 - [Hardware feature matrix](../../docs/feature-matrix.md)
+- [Installation](../../docs/installation.md)

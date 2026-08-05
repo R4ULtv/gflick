@@ -66,35 +66,39 @@ Record a settled 60-second CPU, RSS, thread, and wake-up baseline. `Quit Open Hu
 gracefully stop both the tray and agent, and launchd must not restart either component
 until the next login or explicit startup installation.
 
-### Per-user LaunchAgent validation
+### Per-user setup and LaunchAgent validation
 
 After the release build succeeds, validate installation separately from the hardware
 write checks:
 
 ```bash
-./target/release/open-hub-agent startup install
-./target/release/open-hub-agent startup status
+./open-hub-setup verify-bundle
+./open-hub-setup install --components agent,tray
+./open-hub-setup status
 launchctl print "gui/$(id -u)/io.github.r4ultv.open-hub.agent"
+launchctl print "gui/$(id -u)/io.github.r4ultv.open-hub.tray"
 ```
 
 Confirm that the agent is under `~/Library/Application Support/open-hub/bin`, the tray
 is installed as `~/Library/Application Support/open-hub/Open Hub.app`, and the plist is
 under `~/Library/LaunchAgents`. Finder must recognize the bundle's full-color ICNS icon,
 while the menu bar must render the transparent template cleanly in both light and dark
-appearances. Both the agent and menu-bar item must start automatically, and the agent
+appearances. The independent agent and tray LaunchAgents must both start automatically,
+and the agent
 must become ready through its normal IPC endpoint. Log out and back in once to verify
 automatic login startup. Then verify graceful
 unregistration and reinstall it for continued testing:
 
 ```bash
-./target/release/open-hub-agent startup uninstall
-./target/release/open-hub-agent startup status
-./target/release/open-hub-agent startup install
+./open-hub-setup uninstall
+./open-hub-setup status
+./open-hub-setup install --components agent,tray
 ```
 
-Inspect `~/Library/Logs/open-hub/agent.log` and `agent-error.log` for launch-only
-failures. The uninstall status must report no plist, no installed agent or tray
-executable, and no loaded launchd job.
+Inspect `~/Library/Logs/open-hub/agent.log`, `agent-error.log`, `tray.log`, and
+`tray-error.log` for launch-only failures. The uninstall status must report no managed
+files or loaded LaunchAgents. It must preserve settings and logs unless
+`--remove-user-data` is explicitly supplied.
 
 ## 2. HID discovery
 

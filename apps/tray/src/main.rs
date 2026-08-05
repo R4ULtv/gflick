@@ -2,9 +2,16 @@
 
 mod model;
 
-use std::{thread, time::Duration};
+use std::{
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{Context, Result, bail};
+use directories::BaseDirs;
 use model::TrayState;
 use open_hub_client::EventSubscription;
 use open_hub_protocol::{AgentEvent, DeviceState, DeviceSummary, RequestCommand, ResponseData};
@@ -22,6 +29,7 @@ use winit::{
 const REFRESH_MENU_ID: &str = "open-hub-refresh";
 const QUIT_MENU_ID: &str = "open-hub-quit";
 const RECONNECT_DELAY: Duration = Duration::from_secs(5);
+const STOP_REQUEST_POLL: Duration = Duration::from_millis(100);
 
 type DeviceSnapshot = Vec<(DeviceSummary, Option<DeviceState>)>;
 
@@ -172,14 +180,147 @@ fn main() -> Result<()> {
         .context("failed to create tray event loop")?;
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy = event_loop.create_proxy();
+    let stop_handshake = TrayStopHandshake::arm_default()?;
+    spawn_stop_request_watcher(proxy.clone(), stop_handshake.clone());
     let menu_proxy = proxy.clone();
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         let _ = menu_proxy.send_event(UserEvent::Menu(event.id.0));
     }));
     let mut app = TrayApp::new(proxy, online_icon, offline_icon);
-    event_loop
+    let result = event_loop
         .run_app(&mut app)
-        .context("Open Hub tray event loop failed")
+        .context("Open Hub tray event loop failed");
+    stop_handshake.disarm()?;
+    result
+}
+
+#[derive(Clone, Debug)]
+struct TrayStopHandshake {
+    ready: PathBuf,
+    stop: PathBuf,
+    generation: String,
+}
+
+impl TrayStopHandshake {
+    fn arm_default() -> Result<Self> {
+        let base =
+            BaseDirs::new().context("could not determine the per-user tray data directory")?;
+        let root = base.data_local_dir().join("open-hub");
+        let generation = format!(
+            "{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .context("system clock is before the Unix epoch")?
+                .as_nanos()
+        );
+        Self::arm(&root, &generation)
+    }
+
+    fn arm(root: &Path, generation: &str) -> Result<Self> {
+        if generation.is_empty() {
+            bail!("tray handshake generation must not be empty");
+        }
+        fs::create_dir_all(root).with_context(|| {
+            format!("failed to create tray handshake root `{}`", root.display())
+        })?;
+        let handshake = Self {
+            ready: root.join("tray.ready"),
+            stop: root.join("tray.stop"),
+            generation: generation.to_owned(),
+        };
+        remove_if_exists(&handshake.stop)?;
+        write_token(&handshake.ready, &handshake.generation)?;
+        Ok(handshake)
+    }
+
+    fn poll_stop(&self) -> Result<bool> {
+        let request = read_token(&self.stop)?;
+        match request.as_deref() {
+            Some(request) if request == self.generation => {
+                remove_if_exists(&self.stop)?;
+                remove_if_token_matches(&self.ready, &self.generation)?;
+                Ok(true)
+            }
+            Some(_) => {
+                remove_if_exists(&self.stop)?;
+                Ok(false)
+            }
+            None => {
+                if self.stop.exists() {
+                    remove_if_exists(&self.stop)?;
+                }
+                Ok(false)
+            }
+        }
+    }
+
+    fn disarm(&self) -> Result<()> {
+        remove_if_token_matches(&self.ready, &self.generation)?;
+        remove_if_token_matches(&self.stop, &self.generation)
+    }
+}
+
+fn write_token(path: &Path, token: &str) -> Result<()> {
+    let mut file = fs::File::create(path)
+        .with_context(|| format!("failed to write tray handshake `{}`", path.display()))?;
+    file.write_all(token.as_bytes())?;
+    file.write_all(b"\n")?;
+    file.sync_all()?;
+    Ok(())
+}
+
+fn read_token(path: &Path) -> Result<Option<String>> {
+    match fs::read_to_string(path) {
+        Ok(contents) => {
+            let token = contents.trim();
+            if token.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(token.to_owned()))
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error)
+            .with_context(|| format!("failed to read tray handshake `{}`", path.display())),
+    }
+}
+
+fn remove_if_exists(path: &Path) -> Result<()> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error)
+            .with_context(|| format!("failed to remove tray handshake `{}`", path.display())),
+    }
+}
+
+fn remove_if_token_matches(path: &Path, generation: &str) -> Result<()> {
+    if read_token(path)?.as_deref() == Some(generation) {
+        remove_if_exists(path)?;
+    }
+    Ok(())
+}
+
+fn spawn_stop_request_watcher(proxy: EventLoopProxy<UserEvent>, handshake: TrayStopHandshake) {
+    thread::Builder::new()
+        .name("open-hub-tray-stop".to_owned())
+        .spawn(move || stop_request_worker(proxy, &handshake))
+        .expect("failed to start tray stop-request watcher");
+}
+
+fn stop_request_worker(proxy: EventLoopProxy<UserEvent>, handshake: &TrayStopHandshake) {
+    loop {
+        match handshake.poll_stop() {
+            Ok(true) => {
+                let _ = proxy.send_event(UserEvent::QuitCompleted);
+                return;
+            }
+            Ok(false) => {}
+            Err(error) => eprintln!("Could not consume tray stop request: {error:#}"),
+        }
+        thread::sleep(STOP_REQUEST_POLL);
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -400,6 +541,8 @@ fn truncate(value: &str, maximum_characters: usize) -> String {
 
 #[cfg(test)]
 mod asset_tests {
+    use super::*;
+
     #[test]
     fn platform_icon_assets_decode_at_expected_sizes() {
         let windows = image::load_from_memory_with_format(
@@ -423,5 +566,45 @@ mod asset_tests {
                 .filter(|pixel| pixel.0[3] != 0)
                 .all(|pixel| pixel.0[..3] == [0, 0, 0])
         );
+    }
+
+    #[test]
+    fn matching_generation_is_consumed_and_disarmed() {
+        let directory = tempfile::tempdir().unwrap();
+        let handshake = TrayStopHandshake::arm(directory.path(), "generation-one").unwrap();
+        write_token(&handshake.stop, "generation-one").unwrap();
+        assert!(handshake.poll_stop().unwrap());
+        assert!(!handshake.ready.exists());
+        assert!(!handshake.stop.exists());
+    }
+
+    #[test]
+    fn mismatched_request_is_ignored_and_cleaned() {
+        let directory = tempfile::tempdir().unwrap();
+        let handshake = TrayStopHandshake::arm(directory.path(), "generation-new").unwrap();
+        write_token(&handshake.stop, "generation-old").unwrap();
+        assert!(!handshake.poll_stop().unwrap());
+        assert_eq!(
+            read_token(&handshake.ready).unwrap().as_deref(),
+            Some("generation-new")
+        );
+        assert!(!handshake.stop.exists());
+    }
+
+    #[test]
+    fn new_generation_clears_crashed_predecessor_request() {
+        let directory = tempfile::tempdir().unwrap();
+        let old = TrayStopHandshake::arm(directory.path(), "generation-old").unwrap();
+        write_token(&old.stop, "generation-old").unwrap();
+        let new = TrayStopHandshake::arm(directory.path(), "generation-new").unwrap();
+        assert!(!new.stop.exists());
+        assert!(!new.poll_stop().unwrap());
+        old.disarm().unwrap();
+        assert_eq!(
+            read_token(&new.ready).unwrap().as_deref(),
+            Some("generation-new")
+        );
+        new.disarm().unwrap();
+        assert!(!new.ready.exists());
     }
 }

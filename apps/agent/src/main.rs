@@ -1,5 +1,4 @@
 mod ipc;
-mod startup;
 mod store;
 
 use std::{
@@ -14,17 +13,13 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use open_hub_core as core;
 use open_hub_protocol as protocol;
 
 #[derive(Debug, Parser)]
 #[command(name = "open-hub-agent", about = "Low-overhead Open Hub mouse agent")]
-#[command(args_conflicts_with_subcommands = true)]
 struct Cli {
-    #[command(subcommand)]
-    command: Option<CliCommand>,
-
     /// Seconds between USB device discovery passes.
     #[arg(long, default_value_t = 5)]
     scan_interval_seconds: u64,
@@ -57,39 +52,10 @@ struct Cli {
     #[arg(long, requires = "events")]
     event_count: Option<usize>,
 
-    /// Internal Windows login launcher that starts the agent and tray together.
-    #[cfg(windows)]
-    #[arg(long, hide = true)]
-    launch_background: bool,
-
     /// Internal detached Windows agent process.
     #[cfg(windows)]
     #[arg(long, hide = true)]
     background_worker: bool,
-
-    /// Internal macOS login mode that starts the tray before running the agent.
-    #[cfg(target_os = "macos")]
-    #[arg(long, hide = true)]
-    launch_tray: bool,
-}
-
-#[derive(Debug, Subcommand)]
-enum CliCommand {
-    /// Manage automatic startup for the current user.
-    Startup {
-        #[command(subcommand)]
-        action: StartupAction,
-    },
-}
-
-#[derive(Debug, Clone, Copy, Subcommand)]
-enum StartupAction {
-    /// Install the agent and sibling tray, then start both automatically at login.
-    Install,
-    /// Remove automatic startup and both installed binaries.
-    Uninstall,
-    /// Show the current per-user startup registration.
-    Status,
 }
 
 struct ActiveMouse {
@@ -1404,27 +1370,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     #[cfg(windows)]
-    if cli.launch_background {
-        return startup::launch_background();
-    }
-
-    #[cfg(target_os = "macos")]
-    if cli.launch_tray {
-        startup::launch_tray()?;
-    }
-
-    #[cfg(windows)]
     let background_worker = cli.background_worker;
-
-    if let Some(CliCommand::Startup { action }) = cli.command.as_ref() {
-        let (label, status) = match action {
-            StartupAction::Install => ("installed", startup::install()?),
-            StartupAction::Uninstall => ("removed", startup::uninstall()?),
-            StartupAction::Status => ("status", startup::status()?),
-        };
-        startup::print_status(label, &status);
-        return Ok(());
-    }
 
     if let Some(request) = cli.request {
         println!("{}", ipc::send_request(&request)?);
@@ -1481,16 +1427,6 @@ fn main() -> Result<()> {
     );
     let mut next_scan = std::time::Instant::now();
     'run: while !shutdown.load(Ordering::Acquire) {
-        #[cfg(windows)]
-        match startup::take_stop_request() {
-            Ok(true) => {
-                println!("Per-user startup requested a graceful agent stop.");
-                break;
-            }
-            Ok(false) => {}
-            Err(error) => eprintln!("Could not check the startup stop request: {error:#}"),
-        }
-
         let now = std::time::Instant::now();
         if now >= next_scan {
             match agent.tick() {
@@ -1556,14 +1492,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_nested_startup_commands() {
-        let cli = Cli::try_parse_from(["open-hub-agent", "startup", "install"]).unwrap();
-        assert!(matches!(
-            cli.command,
-            Some(CliCommand::Startup {
-                action: StartupAction::Install
-            })
-        ));
+    fn rejects_removed_startup_commands() {
+        assert!(Cli::try_parse_from(["open-hub-agent", "startup", "install"]).is_err());
     }
 
     #[cfg(windows)]
@@ -1571,7 +1501,6 @@ mod tests {
     fn parses_detached_background_worker_flag() {
         let cli = Cli::try_parse_from(["open-hub-agent", "--background-worker"]).unwrap();
         assert!(cli.background_worker);
-        assert!(!cli.launch_background);
     }
 
     fn sample_device_state() -> protocol::DeviceState {

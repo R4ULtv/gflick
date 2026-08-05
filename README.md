@@ -102,17 +102,18 @@ cargo run -p open-hub-agent
 
 The agent periodically discovers devices, keeps opened mouse sessions owned by one
 thread, refreshes battery state, persists per-user preferences, and serves protocol
-version 1 over an OS-local socket. Build both user-facing components and install them
-together for per-user startup:
+version 1 over an OS-local socket. Release bundles are installed and maintained by the
+standalone setup bootstrapper:
 
 ```sh
-cargo build --release -p open-hub-agent -p open-hub-tray
-./target/release/open-hub-agent startup install
+open-hub-setup install
+open-hub-setup install --components agent,tray,cli
 ```
 
-Login starts both the agent and tray. `Quit Open Hub` in the tray gracefully stops the
-entire application; the separate processes are an internal implementation detail. Run
-`cargo run -p open-hub-agent -- --help` for all agent modes.
+The current default is `agent,tray`; use `--components agent` for a headless install.
+Settings is the future primary UI and remains unavailable until its real payload ships.
+See the [installation guide](docs/installation.md) for bundle verification, component
+selection, installed paths, status and repair, and data-retention behavior.
 
 The [IPC protocol documentation](docs/ipc-protocol.md) covers message formats,
 events, persistence, and safety boundaries.
@@ -183,6 +184,8 @@ Detailed and hardware-specific information lives in [`docs/`](docs/):
   and client safety rules.
 - [macOS testing](docs/macos-testing.md) - Apple Silicon build, discovery, and
   reversible hardware-validation checklist.
+- [Installation](docs/installation.md) - verified release bundles, selectable
+  components, platform paths, repair, and uninstall retention.
 
 The native benchmark's complete usage and A/B procedure live with the crate in
 [apps/bench/README.md](apps/bench/README.md).

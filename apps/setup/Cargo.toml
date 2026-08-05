@@ -1,25 +1,21 @@
 [package]
-name = "open-hub-tray"
+name = "open-hub-setup"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-build = "build.rs"
 
 [lints]
 workspace = true
 
 [dependencies]
 anyhow.workspace = true
-directories.workspace = true
-image.workspace = true
+clap.workspace = true
 open-hub-client.workspace = true
+open-hub-install.workspace = true
 open-hub-protocol.workspace = true
-tray-icon.workspace = true
-winit.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-
-[build-dependencies]
-winresource.workspace = true

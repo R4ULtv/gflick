@@ -25,17 +25,18 @@ can adapt it to light, dark, and highlighted appearances.
 
 ## Build and run
 
-Build both components, then install them as one per-user startup session:
+Build the tray during development, or select it from an extracted release bundle with
+the setup bootstrapper:
 
 ```powershell
-cargo build --release -p open-hub-agent -p open-hub-tray
-./target/release/open-hub-agent startup install
+cargo build --release -p open-hub-tray
+open-hub-setup install --components agent,tray
 ```
 
-The install command copies both binaries and starts both at login through one Open Hub
-registration. Release tray builds use the Windows GUI subsystem, so no console window
-remains open. The two processes remain isolated internally for reliability, but their
-startup and shutdown behave as one application.
+The agent and tray use independent per-user login registrations, so tray remains
+optional and a headless agent install is supported. Release tray builds use the Windows
+GUI subsystem, so no console window remains open. See the
+[installation guide](../../docs/installation.md) for platform paths and maintenance.
 
 ## Runtime design
 
@@ -47,6 +48,11 @@ offline presentation and the client retries every five seconds.
 The reusable transport lives in `crates/open-hub-client`; future settings applications
 can use the same typed request and subscription API instead of duplicating local-socket
 framing.
+
+During repair, update, or removal, `open-hub-setup` uses a bounded per-user stop-request
+handshake so the tray can exit cleanly even while the agent is offline. The tray
+consumes the request and closes through its normal event-loop path; setup never
+force-kills it and cleans an unconsumed request when no tray is running.
 
 ## Platform validation
 
