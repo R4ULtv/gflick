@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::manifest::{Component, InstallRoot};
 
 pub mod macos;
+#[cfg(windows)]
 pub mod windows;
 
 /// Concrete directories selected by a trusted platform implementation.
