@@ -19,6 +19,31 @@ The agent and its protocol are the intended integration boundary. `open-hub` is 
 user-facing IPC CLI for controlling a running agent. `open-hub-probe` remains a
 development, diagnostic, and hardware-validation CLI that opens HID devices directly.
 
+## Download and install
+
+Release artifacts are currently **unsigned and experimental**. Download the user
+bundle for Windows x86_64 or Apple Silicon macOS from the matching GitHub prerelease,
+along with `SHA256SUMS`. Verify the archive before extracting it:
+
+```powershell
+# Windows PowerShell; compare this value with the archive's SHA256SUMS entry
+(Get-FileHash .\open-hub-0.1.0-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()
+```
+
+```sh
+# Apple Silicon macOS
+shasum -a 256 open-hub-0.1.0-macos-aarch64.tar.gz
+```
+
+Extract the archive, then run `open-hub-setup install` from the extracted directory.
+Installing a release bundle does not require Rust or a compiler. See the
+[setup README](apps/setup/README.md) for component selection, verification, repair,
+and uninstall instructions.
+
+The separately named `open-hub-devtools-<version>-<platform>-<arch>` archive is only
+for development and hardware diagnosis. Its Probe executable opens HID directly and
+must not run at the same time as the agent.
+
 ## Early efficiency result
 
 In an initial 30-minute Windows process-counter comparison, Open Hub averaged `0.105%`
@@ -186,6 +211,8 @@ Detailed and component-specific information lives with each app and in [`docs/`]
   reversible hardware-validation checklist.
 - [Setup and installation](apps/setup/README.md) - verified release bundles, selectable
   components, platform paths, repair, and uninstall retention.
+- [Release process](docs/releasing.md) - maintainer versioning, packaging, publishing,
+  validation, and rollback procedure.
 
 The native benchmark's complete usage and A/B procedure live with the crate in
 [apps/bench/README.md](apps/bench/README.md).

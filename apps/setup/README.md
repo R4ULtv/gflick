@@ -4,6 +4,23 @@
 installs a verified release bundle that is already present on disk; it does not
 download components from the network.
 
+## Get a release bundle
+
+Artifacts are currently **unsigned and experimental**. From a GitHub prerelease,
+download `SHA256SUMS` and exactly one user archive for your platform:
+
+- `open-hub-<version>-windows-x86_64.zip` for Windows 10/11 x86_64;
+- `open-hub-<version>-macos-aarch64.tar.gz` for Apple Silicon macOS.
+
+Verify the downloaded archive against its `SHA256SUMS` entry before extracting it.
+On Windows, use `Get-FileHash <archive> -Algorithm SHA256`; on macOS, use
+`shasum -a 256 <archive>`. Extract it and run `open-hub-setup install` from that
+directory. No Rust toolchain or source build is required.
+
+Developer tools are published separately as
+`open-hub-devtools-<version>-<platform>-<arch>`. They are not installable components:
+Probe opens HID directly and must not run concurrently with the agent.
+
 ## Bundle layout
 
 An extracted release has this shape:
