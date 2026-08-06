@@ -119,6 +119,21 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v6
+      - name: Verify tag matches the website version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=${GITHUB_REF_NAME#v}
+          site=$(sed -n 's/^export const VERSION = "\([^"]*\)";$/\1/p' website/src/consts.ts)
+          test -n "$site" || {
+            echo "no VERSION literal found in website/src/consts.ts" >&2
+            exit 1
+          }
+          test "$site" = "$version" || {
+            echo "tag version $version does not match website $site" >&2
+            exit 1
+          }
       - name: Download release artifacts
         uses: actions/download-artifact@v8
         with:
