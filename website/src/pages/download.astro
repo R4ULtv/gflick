@@ -1,0 +1,225 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import ExternalMark from "../components/ExternalMark.astro";
+import PageHead from "../components/PageHead.astro";
+import DataTable from "../components/DataTable.astro";
+import Prose from "../components/Prose.astro";
+import CopyRow from "../components/CopyRow.astro";
+import PlatformPicker from "../components/PlatformPicker.astro";
+import { ARCHIVES, RELEASES, REPO, SETUP_DOC, VERSION } from "../consts";
+
+/** Filenames come from consts.ts so a release bump is one edit. */
+const BUNDLES = [
+    {
+        name: "User bundle",
+        audience: "Everyone",
+        files: [ARCHIVES.windows, ARCHIVES.macos],
+        holds: [
+            "gflick-setup, the installer and maintenance tool",
+            "gflick-agent, the device owner and IPC server",
+            "gflick-tray, the status client",
+            "gflick, the scriptable IPC CLI",
+        ],
+        note: "This is the one to download. It never opens HID directly except through the agent.",
+    },
+    {
+        name: "Devtools bundle",
+        audience: "Development and hardware diagnosis",
+        files: [
+            `gflick-devtools-${VERSION}-windows-x86_64.zip`,
+            `gflick-devtools-${VERSION}-macos-aarch64.tar.gz`,
+        ],
+        holds: [
+            "gflick-probe, the direct-HID diagnostic CLI",
+            "gflick-bench, the resource-usage recorder",
+        ],
+        note: "Probe talks to HID directly and must not run while the agent is running - they compete for the same interface.",
+    },
+];
+
+const REQUIREMENTS = [
+    ["Windows", "Windows 10 or 11, x86-64", "Supported"],
+    ["macOS", "Apple Silicon (aarch64)", "Supported"],
+    ["macOS", "Intel (x86-64)", "Rejected by the installer"],
+    ["Linux", "Any", "Not built"],
+];
+
+const SOURCE = [
+    { label: "Clone", value: `git clone ${REPO}` },
+    { label: "Build", value: "cargo build --release --workspace" },
+    { label: "Run the agent", value: "cargo run -p gflick-agent" },
+];
+---
+
+<Layout
+    title="Download - GFlick"
+    description="Release archives for GFlick: what each bundle contains, platform requirements, how to verify a download, and how to build from source instead."
+>
+    <Header />
+
+    <main>
+        <PageHead
+            eyebrow="Unsigned prereleases"
+            lines={["Two archives.", "Take the first one"]}
+            lead="Every release publishes a user bundle and a devtools bundle per platform, plus a SHA256SUMS file. Unless you are diagnosing hardware or measuring resource usage, you want the user bundle and nothing else."
+        >
+            <p class="mt-8 font-mono text-[0.78rem] text-mist-52">
+                Version {VERSION} ·{" "}
+                <a
+                    href={RELEASES}
+                    target="_blank"
+                    rel="noreferrer"
+                    class="border-b border-mist-32 text-mist-70 transition-colors hover:text-paper"
+                    >All releases and changelogs <ExternalMark /></a
+                >
+            </p>
+        </PageHead>
+
+        <PlatformPicker />
+
+        <section class="border-b border-rule py-[clamp(48px,6vw,72px)]">
+            <div class="container-page">
+                <div
+                    class="grid gap-px overflow-hidden border border-rule bg-rule lg:grid-cols-2"
+                >
+                    {
+                        BUNDLES.map((bundle) => (
+                            <article class="flex min-w-0 flex-col gap-5 bg-blue p-[clamp(22px,3vw,32px)]">
+                                <div>
+                                    <p class="tag mb-3 block">
+                                        {bundle.audience}
+                                    </p>
+                                    <h2 class="text-[1.3rem] font-medium tracking-[-0.02em]">
+                                        {bundle.name}
+                                    </h2>
+                                </div>
+
+                                <ul class="flex min-w-0 flex-col gap-1.5">
+                                    {bundle.files.map((file) => (
+                                        <li class="overflow-x-auto rounded-[3px] bg-well px-2.5 py-1.5 font-mono text-[0.78rem] whitespace-nowrap text-mist">
+                                            {file}
+                                        </li>
+                                    ))}
+                                </ul>
+
+                                <ul class="flex flex-col gap-2">
+                                    {bundle.holds.map((item) => (
+                                        <li class="flex gap-2.5 text-[0.9rem] leading-[1.55] text-mist-70">
+                                            <span class="mt-[0.62em] size-[3px] shrink-0 rounded-full bg-mist-32" />
+                                            <span>{item}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+
+                                <p class="mt-auto border-t border-rule pt-4 text-[0.88rem] leading-[1.6] text-mist-70">
+                                    {bundle.note}
+                                </p>
+                            </article>
+                        ))
+                    }
+                </div>
+            </div>
+        </section>
+
+        <section class="border-b border-rule py-[clamp(56px,7vw,88px)]">
+            <div class="container-page">
+                <div class="mb-[clamp(26px,3vw,36px)] max-w-[70ch]">
+                    <h2 class="text-h3 font-[450] tracking-[-0.03em]">
+                        Platform requirements
+                    </h2>
+                    <p class="mt-4 leading-[1.7] text-mist-70">
+                        Intel macOS is outside the support and test matrix, so
+                        the installer refuses it rather than installing
+                        something that would fail later.
+                    </p>
+                </div>
+
+                <DataTable
+                    caption="Supported platforms"
+                    head={["Platform", "Target", "Status"]}
+                    rows={REQUIREMENTS}
+                    minWidth="520px"
+                />
+            </div>
+        </section>
+
+        <section class="border-b border-rule py-[clamp(56px,7vw,88px)]">
+            <div class="container-page">
+                <div class="mb-[clamp(26px,3vw,36px)] max-w-[70ch]">
+                    <h2 class="text-h3 font-[450] tracking-[-0.03em]">
+                        Or build it yourself
+                    </h2>
+                    <p class="mt-4 leading-[1.7] text-mist-70">
+                        Building from source avoids the unsigned-binary warnings
+                        entirely. It needs Rust stable - the workspace declares
+                        1.85 as its minimum - plus Visual Studio Build Tools
+                        with Desktop development with C++ and a Windows SDK, or
+                        the Xcode Command Line Tools on macOS.
+                    </p>
+                </div>
+
+                <div class="flex max-w-[70ch] min-w-0 flex-col gap-5">
+                    {
+                        SOURCE.map((cmd) => (
+                            <CopyRow label={cmd.label} value={cmd.value} />
+                        ))
+                    }
+                </div>
+            </div>
+        </section>
+
+        <section class="py-[clamp(56px,7vw,88px)]">
+            <div class="container-page">
+                <Prose measure="74ch">
+                    <div>
+                        <h2>Verify before you extract</h2>
+                        <p>
+                            Nothing published here is code-signed or notarised,
+                            so Windows SmartScreen and macOS Gatekeeper will
+                            both warn about an unidentified developer. That
+                            warning is expected, which is exactly why the hash
+                            check matters: download <code>SHA256SUMS</code> alongside
+                            the archive and compare the two before extracting anything.
+                        </p>
+                        <p>
+                            The per-platform verification command is on the card
+                            for your platform above, and the step-by-step
+                            install flow is on the <a href="/setup"
+                                >setup page</a
+                            >.
+                        </p>
+                    </div>
+
+                    <div>
+                        <h2>What you get after installing</h2>
+                        <p>
+                            The default install registers the agent and the
+                            tray. The agent discovers devices, keeps each mouse
+                            session owned by one thread, refreshes battery
+                            state, persists your preferences, and serves
+                            protocol version 1 over an OS-local socket. The tray
+                            subscribes to those events and sleeps between
+                            changes rather than polling.
+                        </p>
+                        <p>
+                            A graphical settings application is the intended
+                            primary interface and is not shipping yet. Until it
+                            does, control happens through the{" "}
+                            <code>gflick</code> CLI. Component selection, installed
+                            paths, and uninstall behaviour are covered in the{
+                                " "
+                            }
+                            <a href={SETUP_DOC} target="_blank" rel="noreferrer"
+                                >setup README <ExternalMark /></a
+                            >.
+                        </p>
+                    </div>
+                </Prose>
+            </div>
+        </section>
+    </main>
+
+    <Footer />
+</Layout>

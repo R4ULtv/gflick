@@ -1,0 +1,241 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import ExternalMark from "../components/ExternalMark.astro";
+import PageHead from "../components/PageHead.astro";
+import DataTable from "../components/DataTable.astro";
+import Prose from "../components/Prose.astro";
+import { MATRIX_DOC } from "../consts";
+
+const MICE = [
+    {
+        name: "PRO X Superlight",
+        profileFormat: "Format 0x04",
+        note: "The only mouse that has taken a live onboard flash write, including a verified profile-name round trip and a restore of all 255 original bytes.",
+    },
+    {
+        name: "PRO X Superlight 2",
+        profileFormat: "Format 0x07",
+        note: "The widest capability set: X/Y DPI, lift-off distance, 8 kHz wireless polling, surface mode, and BHOP. No flash write has been sent to it.",
+    },
+    {
+        name: "G305",
+        profileFormat: "Format 0x03",
+        note: "One public RGB zone with all four effects verified live, plus read/write performance mode. No flash write has been sent to it.",
+    },
+];
+
+/** Straight from docs/feature-matrix.md - end-user capability, not raw HID++ IDs. */
+const MATRIX = [
+    ["Name, model, unit ID, firmware", "Yes", "Yes", "Yes"],
+    ["Battery percentage and charge state", "Yes", "Yes", "Yes"],
+    ["Live DPI and supported range", "Yes", "Yes, X/Y", "Yes"],
+    ["Lift-off distance", "—", "Yes", "—"],
+    ["Wired polling rate", "Yes", "Yes", "Shared rate"],
+    ["Wireless polling rate", "Up to 1 kHz", "Up to 8 kHz", "Up to 1 kHz"],
+    ["Performance/endurance mode", "—", "Read-only", "Read/write"],
+    ["Gaming surface mode", "—", "Yes", "—"],
+    ["Color LED effects", "Indicator only", "—", "One RGB zone"],
+    ["BHOP", "—", "Yes", "—"],
+    ["Host/onboard mode and active profile", "Yes", "Yes", "Yes"],
+    [
+        "Onboard profile list and decoding",
+        "Format 0x04",
+        "Format 0x07",
+        "Format 0x03",
+    ],
+    [
+        "Profile-sector writes",
+        "Live proof passed",
+        "Encoder tested",
+        "Encoder tested",
+    ],
+    [
+        "Profile enable/disable directory",
+        "Five profiles",
+        "Five profiles",
+        "One writable",
+    ],
+    ["DPI stages and shift stage", "Yes", "Yes", "Yes"],
+    [
+        "Onboard button assignments",
+        "Five buttons",
+        "Five buttons",
+        "Six buttons",
+    ],
+    ["Profile names and power timers", "Yes", "Yes", "Yes"],
+    ["Host button mapping and filter", "Yes", "Yes", "Yes"],
+];
+
+const EXCLUDED = [
+    {
+        title: "Hidden and internal features",
+        body: "The 0x18xx and 0x1Exx ranges are firmware manufacturing, RF-test, out-of-box, and reset facilities. They stay blocked from the settings API so no interface can accidentally reset a mouse or put it into a factory mode.",
+    },
+    {
+        title: "Force pairing and signed DFU",
+        body: "Force Pairing (0x1500) and signed DFU control (0x00c2) are maintenance workflows rather than settings, so they are not exposed either.",
+    },
+    {
+        title: "Macros and per-application profiles",
+        body: "Host keyboard shortcuts, host macros, onboard macro creation, and per-application profile switching are out of scope by intent. Onboard button assignments are supported; recording macro sequences is not.",
+    },
+];
+---
+
+<Layout
+    title="Devices - GFlick"
+    description="Which Logitech mice GFlick supports, what each one exposes over HID++, and which HID++ features are deliberately excluded."
+>
+    <Header />
+
+    <main>
+        <PageHead
+            eyebrow="Three mice, hardware-validated"
+            lines={["What works", "on which mouse"]}
+            lead="Support is capability-driven: a control appears only when the connected mouse advertises the feature behind it. That means an unlisted mouse may still work - GFlick reads what the firmware reports rather than matching a product database - but only these three have been validated against real hardware."
+        />
+
+        <section class="border-b border-rule py-[clamp(48px,6vw,72px)]">
+            <div class="container-page">
+                <div
+                    class="grid gap-px overflow-hidden border border-rule bg-rule md:grid-cols-3"
+                >
+                    {
+                        MICE.map((mouse) => (
+                            <article class="flex flex-col gap-3 bg-blue p-[clamp(22px,2.4vw,30px)]">
+                                <p class="tag block">{mouse.profileFormat}</p>
+                                <h2 class="text-[1.15rem] font-medium tracking-[-0.02em]">
+                                    {mouse.name}
+                                </h2>
+                                <p class="text-[0.9rem] leading-[1.65] text-mist-70">
+                                    {mouse.note}
+                                </p>
+                            </article>
+                        ))
+                    }
+                </div>
+            </div>
+        </section>
+
+        <section class="border-b border-rule py-[clamp(56px,7vw,88px)]">
+            <div class="container-page">
+                <div class="mb-[clamp(26px,3vw,36px)] max-w-[70ch]">
+                    <h2 class="text-h3 font-[450] tracking-[-0.03em]">
+                        Capability matrix
+                    </h2>
+                    <p class="mt-4 leading-[1.7] text-mist-70">
+                        Every row is an end-user capability rather than a raw
+                        HID++ entry, so a feature the firmware merely advertises
+                        does not count as supported. A dash means the mouse does
+                        not advertise it at all.
+                    </p>
+                </div>
+
+                <DataTable
+                    caption="Supported capabilities by mouse"
+                    head={["Capability", "Superlight", "Superlight 2", "G305"]}
+                    rows={MATRIX}
+                    minWidth="720px"
+                />
+
+                <p
+                    class="mt-5 max-w-[70ch] text-[0.88rem] leading-[1.65] text-mist-70"
+                >
+                    <code
+                        class="rounded-[3px] bg-well px-1.5 py-0.5 font-mono text-[0.82rem] text-mist"
+                        >gflick-probe features</code
+                    > prints this same classification for any connected device, so
+                    it is the runtime source of truth for a mouse that is not listed
+                    here.
+                </p>
+            </div>
+        </section>
+
+        <section class="border-b border-rule py-[clamp(56px,7vw,88px)]">
+            <div class="container-page">
+                <div class="mb-[clamp(26px,3vw,36px)] max-w-[70ch]">
+                    <h2 class="text-h3 font-[450] tracking-[-0.03em]">
+                        Deliberately not supported
+                    </h2>
+                    <p class="mt-4 leading-[1.7] text-mist-70">
+                        Some HID++ features are reachable but intentionally
+                        blocked. These are not gaps waiting to be filled.
+                    </p>
+                </div>
+
+                <div
+                    class="grid gap-px overflow-hidden border border-rule bg-rule md:grid-cols-3"
+                >
+                    {
+                        EXCLUDED.map((item) => (
+                            <article class="flex flex-col gap-3 bg-blue p-[clamp(22px,2.4vw,30px)]">
+                                <h3 class="text-[1rem] font-medium">
+                                    {item.title}
+                                </h3>
+                                <p class="text-[0.9rem] leading-[1.65] text-mist-70">
+                                    {item.body}
+                                </p>
+                            </article>
+                        ))
+                    }
+                </div>
+            </div>
+        </section>
+
+        <section class="py-[clamp(56px,7vw,88px)]">
+            <div class="container-page">
+                <Prose measure="74ch">
+                    <div>
+                        <h2>How writes are made safe</h2>
+                        <p>
+                            Every setting write is validated before it is sent
+                            and verified by reading the value back from the
+                            device. Onboard profile writes go further: they
+                            preserve sector bytes whose meaning is unknown,
+                            regenerate the HID++ CRC, verify the read-back byte
+                            for byte, and roll back automatically on any
+                            mismatch. Flash writes additionally require an
+                            explicit acknowledgement flag.
+                        </p>
+                        <p>
+                            Validation is still device-specific, and this is the
+                            important caveat. A passing encoder unit test is not
+                            the same as a hardware proof. Live onboard flash
+                            writes have only ever been sent to the original
+                            Superlight; the Superlight 2 and G305 profile
+                            encoders are unit-tested only, at the owner's
+                            request.
+                        </p>
+                    </div>
+
+                    <div>
+                        <h2>An unlisted mouse</h2>
+                        <p>
+                            Because discovery is capability-driven, another
+                            Logitech HID++ mouse may well be readable and partly
+                            controllable. Nothing about it is validated, though
+                            - treat it as unverified, start with the read-only
+                            commands, and leave onboard writes alone.
+                        </p>
+                        <p>
+                            The complete matrix, including the diagnostics-only
+                            features and the recorded write proofs, is in the{
+                                " "
+                            }
+                            <a
+                                href={MATRIX_DOC}
+                                target="_blank"
+                                rel="noreferrer"
+                                >feature matrix <ExternalMark /></a
+                            >.
+                        </p>
+                    </div>
+                </Prose>
+            </div>
+        </section>
+    </main>
+
+    <Footer />
+</Layout>

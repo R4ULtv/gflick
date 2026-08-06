@@ -1,0 +1,65 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import PageHead from "../components/PageHead.astro";
+
+/**
+ * Served by Cloudflare for any unmatched path, via not_found_handling in
+ * wrangler.json. The header renders here, unlike on the homepage, because a
+ * visitor who lands on a dead URL needs the nav to get out.
+ */
+const ROUTES = [
+    {
+        href: "/download",
+        label: "Download",
+        note: "Release archives per platform",
+    },
+    { href: "/setup", label: "Setup", note: "Verify, install, and repair" },
+    { href: "/devices", label: "Devices", note: "Tested mice and coverage" },
+    { href: "/benchmark", label: "Benchmark", note: "Measured idle cost" },
+];
+---
+
+<Layout
+    title="Page not found - GFlick"
+    description="That page does not exist. Links to the GFlick download, setup, device coverage, and benchmark pages."
+>
+    <Header />
+
+    <main>
+        <PageHead
+            eyebrow="404"
+            lines={["That page", "does not exist"]}
+            lead="The link may be out of date, or the page may have moved. Everything on the site is one hop from here."
+        />
+
+        <section class="py-[clamp(56px,7vw,88px)]">
+            <div class="container-page">
+                <ul
+                    class="grid gap-px overflow-hidden border border-rule bg-rule sm:grid-cols-2"
+                >
+                    {
+                        ROUTES.map((route) => (
+                            <li class="bg-blue">
+                                <a
+                                    href={route.href}
+                                    class="flex flex-col gap-1.5 p-[26px] transition-colors hover:bg-rule-soft"
+                                >
+                                    <span class="text-[1.15rem] font-medium tracking-[-0.02em]">
+                                        {route.label}
+                                    </span>
+                                    <span class="text-[0.9rem] leading-[1.55] text-mist-70">
+                                        {route.note}
+                                    </span>
+                                </a>
+                            </li>
+                        ))
+                    }
+                </ul>
+            </div>
+        </section>
+    </main>
+
+    <Footer />
+</Layout>

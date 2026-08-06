@@ -1,0 +1,95 @@
+---
+import ExternalMark from "./ExternalMark.astro";
+import { REPO } from "../consts";
+
+/**
+ * Subpages only - the homepage renders no header, because the hero already opens
+ * with the wordmark's job and its own download CTA.
+ *
+ * Real pages, not homepage fragments. The earlier `/#download` and `/#devices`
+ * links pointed at homepage teasers while the standalone pages they summarise
+ * already existed, so on /download/ the "Download" link navigated away from the
+ * full page to a shorter version of itself.
+ */
+const links = [
+    { href: "/download", label: "Download" },
+    { href: "/setup", label: "Setup" },
+    { href: "/devices", label: "Devices" },
+    { href: "/benchmark", label: "Benchmark" },
+];
+
+/**
+ * No trailing slash, matching the hrefs above and the site's `trailingSlash:
+ * "never"`. A visitor arriving at /download/ still highlights the right link.
+ */
+/**
+ * Normalised to match the slash-less hrefs above.
+ *
+ * `build.format: "file"` means the prerendered pathname is `/download.html`,
+ * while a visitor on the deployed site is on `/download` (or `/download/` if
+ * they typed the slash). Strip both endings so all three forms compare equal.
+ */
+const path = Astro.url.pathname.replace(/\.html$/, "").replace(/(.)\/$/, "$1");
+---
+
+<header
+    class="sticky top-0 z-20 border-b border-rule bg-blue/85 backdrop-blur-md"
+>
+    <div
+        class="container-page flex h-[72px] items-center justify-between gap-6"
+    >
+        <a
+            href="/"
+            class="group inline-flex items-center gap-[11px] rounded-[3px] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-paper"
+            aria-label="GFlick home"
+        >
+            <svg
+                class="size-[34px] shrink-0 text-mist transition-colors group-hover:text-paper"
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+            >
+                <path
+                    fill="currentColor"
+                    d="M7.25 1.75a.75.75 0 0 1 1.5 0v1.5a.75.75 0 0 1-1.5 0zm4.286 1.154a.75.75 0 1 1 1.06 1.06l-1.06 1.061a.75.75 0 0 1-1.061-1.06zM14.5 7.5a.75.75 0 0 0-.75-.75h-1.5a.75.75 0 0 0 0 1.5h1.5a.75.75 0 0 0 .75-.75M4.464 9.975a.75.75 0 0 1 1.061 1.06l-1.06 1.061a.75.75 0 1 1-1.061-1.06zM4.5 7.5a.75.75 0 0 0-.75-.75h-1.5a.75.75 0 0 0 0 1.5h1.5a.75.75 0 0 0 .75-.75m1.025-3.536a.75.75 0 0 1-1.06 1.061l-1.061-1.06a.75.75 0 0 1 1.06-1.061zm3.254 3.474a.75.75 0 0 0-1.368.366l-.396 5.283a.75.75 0 0 0 1.212.646l.602-.474.288 1.074a.75.75 0 1 0 1.449-.388l-.288-1.075.759.11a.75.75 0 0 0 .726-1.165z"
+                ></path>
+            </svg>
+            <span
+                class="display text-[1.6rem] leading-none tracking-[0.01em] text-paper uppercase"
+            >
+                GFlick
+            </span>
+        </a>
+
+        <nav
+            class="flex flex-wrap items-center justify-end gap-x-[13px] gap-y-0.5 font-mono text-[0.62rem] tracking-[0.04em] text-mist-70 uppercase sm:gap-x-[22px] sm:text-[0.7rem] sm:tracking-[0.06em]"
+            aria-label="Primary"
+        >
+            {
+                links.map((link) => {
+                    const here = path === link.href;
+                    return (
+                        <a
+                            href={link.href}
+                            aria-current={here ? "page" : undefined}
+                            class:list={[
+                                "transition-colors hover:text-paper",
+                                here && "text-paper",
+                            ]}
+                        >
+                            {link.label}
+                        </a>
+                    );
+                })
+            }
+            <a
+                href={REPO}
+                target="_blank"
+                rel="noreferrer"
+                class="hidden items-center gap-[0.3em] transition-colors hover:text-paper min-[420px]:inline-flex"
+            >
+                Source
+                <ExternalMark />
+            </a>
+        </nav>
+    </div>
+</header>

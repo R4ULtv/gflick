@@ -1,0 +1,32 @@
+{
+  "name": "gflick",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "deploy": "wrangler deploy",
+    "cf-typegen": "wrangler types --include-runtime false",
+    "check": "astro check",
+    "lint": "oxlint",
+    "fmt": "oxfmt"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "^14.1.7",
+    "astro": "^7.1.6"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^22.20.1",
+    "oxfmt": "^0.62.0",
+    "oxlint": "^1.77.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.118.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

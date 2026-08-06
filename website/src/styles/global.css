@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+@theme {
+  --color-blue: #3450d1;
+  --color-blue-deep: #2440b4;
+  --color-blue-ink: #16276f;
+  --color-paper: #ffffff;
+  --color-mist: #e3e6f2;
+
+  --color-mist-70: rgb(227 230 242 / 0.7);
+  --color-mist-52: rgb(227 230 242 / 0.52);
+  --color-mist-32: rgb(227 230 242 / 0.32);
+  --color-rule: rgb(227 230 242 / 0.18);
+  --color-rule-soft: rgb(227 230 242 / 0.1);
+  --color-well: rgb(22 39 111 / 0.28);
+
+  --font-sans: var(--font-geist), sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
+  --font-display: var(--font-anton), Impact, sans-serif;
+
+  --text-display: clamp(2.4rem, 11.5vw, 10.3rem);
+  --text-h2: clamp(2.1rem, 6.4vw, 5.6rem);
+  --text-h3: clamp(1.35rem, 2vw, 1.65rem);
+  --text-lead: clamp(1.0625rem, 1.4vw, 1.2rem);
+
+  --container-page: 1200px;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    background-color: var(--color-blue);
+    color: var(--color-paper);
+    font-family: var(--font-sans);
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-mist) var(--color-rule-soft);
+  }
+
+  body {
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-weight: 500;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-paper);
+    outline-offset: 3px;
+  }
+}
+
+@utility container-page {
+  width: min(100% - 2 * clamp(20px, 4vw, 40px), var(--container-page));
+  margin-inline: auto;
+}
+
+/* Display headings. Anton ships one heavy condensed weight and is drawn for
+   uppercase, so it sets its own tracking and a tighter leading than Geist. */
+@utility display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.004em;
+  /* Anton's caps nearly fill its em box, so 0.9 collides at display sizes. */
+  line-height: 0.96;
+  /* No balancing: these headlines set their own breaks. */
+  text-wrap: initial;
+}
+
+/* Eyebrow / utility label - the one repeated structural device */
+@utility tag {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 450;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--color-mist-52);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

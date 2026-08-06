@@ -1,0 +1,837 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Footer from "../components/Footer.astro";
+import ExternalMark from "../components/ExternalMark.astro";
+import CopyRow from "../components/CopyRow.astro";
+import { REPO, DOWNLOADS } from "../consts";
+
+/** Devices with hardware-validated support, from docs/feature-matrix.md. */
+const DEVICES = [
+    {
+        name: "PRO X Superlight",
+        /** Onboard profile format advertised by the firmware. */
+        format: "0x04",
+        dpi: "0x2201",
+        poll: "1 kHz",
+        note: "Live flash write proven",
+    },
+    {
+        name: "PRO X Superlight 2",
+        format: "0x07",
+        dpi: "0x2202",
+        poll: "8 kHz",
+        note: "X/Y DPI, lift-off distance",
+    },
+    {
+        name: "G305",
+        format: "0x03",
+        dpi: "0x2201",
+        poll: "1 kHz",
+        note: "One public RGB zone",
+    },
+];
+
+/**
+ * Controls GFlick exposes today, grouped the way a person thinks about a
+ * mouse rather than by HID++ feature page.
+ */
+const CONTROLS = [
+    {
+        title: "Sensor",
+        feature: "0x2201 / 0x2202",
+        items: [
+            "DPI across the full supported range",
+            "Separate X and Y DPI where the sensor allows it",
+            "Lift-off distance",
+            "DPI stages, plus the active and shift stage",
+        ],
+    },
+    {
+        title: "Report rate",
+        feature: "0x8060 / 0x8061",
+        items: [
+            "Wired polling rate",
+            "Wireless polling rate up to 8 kHz",
+            "Separate wired and wireless rates when the mouse keeps two",
+            "Performance and endurance mode",
+        ],
+    },
+    {
+        title: "Power",
+        feature: "0x1000 / 0x1001",
+        items: [
+            "Battery percentage and charge state",
+            "Sleep and power-off timers",
+            "Firmware, model, and unit identity",
+        ],
+    },
+    {
+        title: "Lighting",
+        feature: "0x8070",
+        items: [
+            "Fixed colour, cycling, and breathing effects",
+            "Effect-aware read-back on every write",
+            "Firmware LED ownership handed back on exit",
+        ],
+    },
+    {
+        title: "Onboard profiles",
+        feature: "0x8100 / 0x8110",
+        items: [
+            "Read, decode, and select stored profiles",
+            "Button assignments, names, and power timers",
+            "Enable or disable profiles in the directory",
+            "Host or onboard mode without erasing storage",
+        ],
+    },
+    {
+        title: "Write safety",
+        feature: "Core guarantee",
+        items: [
+            "Unknown sector bytes preserved byte for byte",
+            "HID++ CRC regenerated and verified on read-back",
+            "Automatic rollback when verification fails",
+            "Flash writes need an explicit acknowledgement",
+        ],
+    },
+];
+
+/** Measured 2026-08-03 on Windows 10 Pro 19045, Ryzen 7 5700X. */
+const BENCH = {
+    date: "August 3, 2026",
+    /** Reads as an adjective: "a 30-minute idle recording". */
+    duration: "30-minute",
+    samples: "900",
+    rows: [
+        {
+            metric: "Resident memory, mean",
+            gflick: "7.58 MiB",
+            ghub: "227.55 MiB",
+            cut: "96.7%",
+        },
+        {
+            metric: "CPU, one-core basis",
+            gflick: "0.105%",
+            ghub: "0.385%",
+            cut: "72.8%",
+        },
+        {
+            metric: "Accumulated CPU time",
+            gflick: "1,890 ms",
+            ghub: "6,937 ms",
+            cut: "72.8%",
+        },
+        {
+            metric: "CPU sample maximum",
+            gflick: "1.60%",
+            ghub: "10.91%",
+            cut: "85.3%",
+        },
+        {
+            metric: "Read I/O, total",
+            gflick: "24 KB",
+            ghub: "20.1 MB",
+            cut: "99.9%",
+        },
+        {
+            metric: "Resident processes",
+            gflick: "1",
+            ghub: "3",
+            cut: "—",
+        },
+    ],
+};
+
+/**
+ * The homepage's only route to /setup, which the footer no longer carries.
+ *
+ * Three steps, not the setup page's four: this is the shape of an install, not
+ * the reference. Component selection and repair are deliberately left there.
+ */
+const STEPS = [
+    {
+        n: "01",
+        title: "Verify the archive",
+        body: "Nothing is code-signed yet, so compare the hash against SHA256SUMS before extracting.",
+        command: {
+            label: "Windows PowerShell",
+            value: "(Get-FileHash .\\gflick-<version>-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()",
+        },
+    },
+    {
+        n: "02",
+        title: "Run the installer",
+        body: "No Rust toolchain and no compiler. Installs per user, and never asks for administrator rights.",
+        command: { label: "Both platforms", value: "gflick-setup install" },
+    },
+    {
+        n: "03",
+        title: "Confirm it came up",
+        body: "Reports what is installed and whether the agent is running. Repair fixes anything missing.",
+        command: { label: "Check", value: "gflick-setup status" },
+    },
+];
+---
+
+<Layout
+    title="GFlick - Logitech mouse control over HID++"
+    description="GFlick is an open-source Logitech mouse agent for Windows and macOS. It sets DPI, polling rate, lighting, and onboard profiles over HID++, and idles at 7.6 MiB of memory."
+>
+    <main>
+        <section class="pt-[clamp(64px,8vw,104px)] pb-[clamp(56px,8vw,96px)]">
+            <div class="container-page">
+                <p class="tag mb-[22px] block">
+                    HID++ agent · Windows &amp; macOS
+                </p>
+
+                <h1 class="display text-display">
+                    <span class="block">Your mouse,</span>{" "}
+                    <span class="block">without the bloat</span>
+                </h1>
+
+                <div
+                    class="mt-[clamp(36px,4.5vw,60px)] grid items-start gap-[clamp(36px,5vw,68px)] lg:grid-cols-[1fr_1fr]"
+                >
+                    <div class="min-w-0">
+                        <p
+                            class="max-w-[52ch] text-lead leading-[1.65] text-mist-70"
+                        >
+                            GFlick talks to your Logitech mouse directly over
+                            HID++. It sets DPI, report rate, lighting, and
+                            onboard profiles, then gets out of the way - one
+                            background process holding 7.58&nbsp;MiB.
+                        </p>
+
+                        <div class="mt-[30px] flex flex-wrap gap-2.5">
+                            <a
+                                id="get"
+                                href="/download"
+                                data-win={DOWNLOADS.windows}
+                                data-mac={DOWNLOADS.macos}
+                                class="inline-flex h-[46px] w-full items-center justify-center gap-[9px] rounded-[3px] border border-paper bg-paper px-5 font-mono text-[0.8rem] font-medium text-blue-ink transition-colors hover:border-mist hover:bg-mist sm:w-auto"
+                            >
+                                <span id="get-label">Download</span>
+                                <svg
+                                    class="size-[13px]"
+                                    viewBox="0 0 16 16"
+                                    aria-hidden="true"
+                                >
+                                    <path
+                                        fill="currentColor"
+                                        d="M8 1.5a.6.6 0 0 1 .6.6v8.05l2.83-2.83a.6.6 0 1 1 .85.85l-3.86 3.86a.6.6 0 0 1-.85 0L3.71 8.17a.6.6 0 1 1 .85-.85L7.4 10.15V2.1a.6.6 0 0 1 .6-.6M2.6 13.3h10.8a.6.6 0 1 1 0 1.2H2.6a.6.6 0 1 1 0-1.2"
+                                    ></path>
+                                </svg>
+                            </a>
+                            <a
+                                href={REPO}
+                                target="_blank"
+                                rel="noreferrer"
+                                class="inline-flex h-[46px] w-full items-center justify-center gap-[0.45em] rounded-[3px] border border-mist-32 px-5 font-mono text-[0.8rem] font-medium transition-colors hover:border-mist-52 hover:bg-rule-soft sm:w-auto"
+                            >
+                                Read the source
+                                <ExternalMark />
+                            </a>
+                        </div>
+
+                        <p
+                            class="mt-[18px] font-mono text-[0.7rem] text-mist-52"
+                        >
+                            <span id="get-note"
+                                >Windows and Apple Silicon macOS</span
+                            > · Unsigned prerelease · MIT licensed
+                        </p>
+                    </div>
+
+                    <div
+                        class="min-w-0 overflow-hidden rounded border border-rule bg-well"
+                    >
+                        <div
+                            class="flex items-center justify-between gap-4 border-b border-rule px-[18px] py-[13px]"
+                        >
+                            <span class="tag">gflick-agent</span>
+                            <span
+                                class="inline-flex items-center gap-[7px] font-mono text-[0.7rem] tracking-[0.06em] text-mist-70 uppercase"
+                            >
+                                <span
+                                    class="pip size-1.5 rounded-full bg-paper"
+                                    aria-hidden="true"></span>
+                                attached
+                            </span>
+                        </div>
+
+                        <ol
+                            id="stream"
+                            class="stream min-h-[168px] px-[18px] py-3.5 font-mono text-[0.755rem] leading-[1.5]"
+                            aria-label="Sample HID++ report traffic"
+                        >
+                            <li>
+                                <span class="ts">00:00.000</span><span
+                                    class="dir rx">rx</span
+                                ><span class="bytes">11 01 09 00 3f 00 00</span
+                                ><span class="label">battery</span>
+                            </li>
+                        </ol>
+
+                        <dl
+                            class="m-0 grid border-t border-rule sm:grid-cols-3"
+                        >
+                            <div
+                                class="border-rule px-[18px] py-4 not-first:border-t sm:not-first:border-t-0 sm:not-first:border-l"
+                            >
+                                <dt class="tag">Resident</dt>
+                                <dd class="display mt-2 text-[1.9rem]">
+                                    7.58 <span
+                                        class="text-[0.8rem] tracking-normal text-mist-52"
+                                        >MiB</span
+                                    >
+                                </dd>
+                            </div>
+                            <div
+                                class="border-rule px-[18px] py-4 not-first:border-t sm:not-first:border-t-0 sm:not-first:border-l"
+                            >
+                                <dt class="tag">CPU, one core</dt>
+                                <dd class="display mt-2 text-[1.9rem]">
+                                    0.105 <span
+                                        class="text-[0.8rem] tracking-normal text-mist-52"
+                                        >%</span
+                                    >
+                                </dd>
+                            </div>
+                            <div
+                                class="border-rule px-[18px] py-4 not-first:border-t sm:not-first:border-t-0 sm:not-first:border-l"
+                            >
+                                <dt class="tag">Processes</dt>
+                                <dd class="display mt-2 text-[1.9rem]">1</dd>
+                            </div>
+                        </dl>
+
+                        <p
+                            class="border-t border-rule px-[18px] py-[13px] font-mono text-[0.7rem] leading-[1.5] text-mist-52"
+                        >
+                            Report traffic is illustrative. Idle figures are
+                            measured - <a
+                                href="#idle"
+                                class="border-b border-mist-32 text-mist-70 hover:text-paper"
+                                >see idle cost</a
+                            >.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section
+            id="devices"
+            class="border-t border-rule py-[clamp(64px,8vw,104px)]"
+        >
+            <div class="container-page">
+                <div class="mb-[clamp(36px,5vw,54px)]">
+                    <p class="tag mb-[18px] block">Hardware validated</p>
+                    <h2 class="display text-h2">
+                        <span class="block">Three mice, tested</span>{" "}
+                        <span class="block">on real firmware</span>
+                    </h2>
+                    <p class="mt-5 max-w-[62ch] leading-[1.65] text-mist-70">
+                        Support is capability-driven: a control appears only
+                        when the mouse advertises the matching HID++ feature.
+                        Anything not validated on the bench is not listed here.
+                    </p>
+                </div>
+
+                <ul class="border-t border-rule">
+                    {
+                        DEVICES.map((device) => (
+                            <li class="grid grid-cols-1 items-start gap-x-6 gap-y-5 border-b border-rule py-[26px] min-[420px]:grid-cols-2 lg:grid-cols-[1.6fr_0.8fr_0.7fr_0.9fr_1.3fr] lg:items-end">
+                                <div class="col-span-full lg:col-span-1">
+                                    <span class="tag mb-2 block">
+                                        Logitech G
+                                    </span>
+                                    <h3 class="text-h3 font-[450] tracking-[-0.03em]">
+                                        {device.name}
+                                    </h3>
+                                </div>
+                                <div>
+                                    <span class="tag mb-2 block">Sensor</span>
+                                    <p class="font-mono text-[0.83rem] text-mist">
+                                        {device.dpi}
+                                    </p>
+                                </div>
+                                <div>
+                                    <span class="tag mb-2 block">Max rate</span>
+                                    <p class="font-mono text-[0.83rem] text-mist">
+                                        {device.poll}
+                                    </p>
+                                </div>
+                                <div>
+                                    <span class="tag mb-2 block">
+                                        Profile format
+                                    </span>
+                                    <p class="font-mono text-[0.83rem] text-mist">
+                                        {device.format}
+                                    </p>
+                                </div>
+                                <div>
+                                    <span class="tag mb-2 block">Notes</span>
+                                    <p class="font-mono text-[0.83rem] text-mist">
+                                        {device.note}
+                                    </p>
+                                </div>
+                            </li>
+                        ))
+                    }
+                </ul>
+
+                <a
+                    href="/devices"
+                    class="mt-[30px] inline-flex items-center gap-[0.45em] border-b border-mist-32 pb-[3px] font-mono text-[0.78rem] text-mist-70 transition-colors hover:text-paper"
+                >
+                    Full feature matrix, including what is excluded on purpose
+                </a>
+            </div>
+        </section>
+
+        <section
+            id="controls"
+            class="border-t border-rule py-[clamp(64px,8vw,104px)]"
+        >
+            <div class="container-page">
+                <div
+                    class="mb-[clamp(36px,5vw,54px)] flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between"
+                >
+                    <div>
+                        <p class="tag mb-[18px] block">What it controls</p>
+                        <h2 class="display text-h2">
+                            <span class="block">Settings,</span>{" "}
+                            <span class="block">not a suite</span>
+                        </h2>
+                    </div>
+                    <p class="max-w-[42ch] leading-[1.65] text-mist-70">
+                        Every write is validated, sent, then read back from the
+                        device. Host macros, onboard macro recording, and
+                        per-application profiles are out of scope on purpose.
+                    </p>
+                </div>
+
+                <div
+                    class="grid gap-px overflow-hidden border border-rule bg-rule sm:grid-cols-2 lg:grid-cols-3"
+                >
+                    {
+                        CONTROLS.map((group) => (
+                            <article class="flex flex-col gap-5 bg-blue p-[26px]">
+                                <div class="flex items-baseline justify-between gap-3">
+                                    <h3 class="text-[1.2rem] font-[450] tracking-[-0.03em]">
+                                        {group.title}
+                                    </h3>
+                                    <span class="tag shrink-0">
+                                        {group.feature}
+                                    </span>
+                                </div>
+                                <ul class="flex flex-col gap-2.5">
+                                    {group.items.map((item) => (
+                                        <li class="grid grid-cols-[auto_1fr] gap-2.5 text-[0.9rem] leading-[1.55] text-mist-70">
+                                            <span
+                                                class="mt-[0.6em] size-[3px] rounded-full bg-mist-32"
+                                                aria-hidden="true"
+                                            />
+                                            <span>{item}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </article>
+                        ))
+                    }
+                </div>
+            </div>
+        </section>
+
+        <section
+            id="idle"
+            class="border-t border-rule py-[clamp(64px,8vw,104px)]"
+        >
+            <div class="container-page">
+                <div
+                    class="mb-[clamp(36px,5vw,54px)] flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between"
+                >
+                    <div>
+                        <p class="tag mb-[18px] block">Measured {BENCH.date}</p>
+                        <h2 class="display text-h2">
+                            <span class="block">What it costs</span>{" "}
+                            <span class="block">to leave running</span>
+                        </h2>
+                    </div>
+                    <p class="max-w-[44ch] leading-[1.65] text-mist-70">
+                        A {BENCH.duration} idle recording of OS process counters -
+                        {BENCH.samples}{" "}
+                        samples at two-second intervals, on Windows 10 Pro with a
+                        Ryzen 7 5700X.
+                    </p>
+                </div>
+
+                <div class="overflow-x-auto border border-rule">
+                    <table
+                        class="w-full min-w-[620px] border-collapse text-left"
+                    >
+                        <thead>
+                            <tr class="border-b border-rule bg-rule-soft">
+                                <th class="tag px-5 py-3.5 font-normal"
+                                    >Metric</th
+                                >
+                                <th
+                                    class="tag px-5 py-3.5 text-right font-normal"
+                                    >GFlick</th
+                                >
+                                <th
+                                    class="tag px-5 py-3.5 text-right font-normal"
+                                    >G HUB stack</th
+                                >
+                                <th
+                                    class="tag px-5 py-3.5 text-right font-normal"
+                                    >Reduction</th
+                                >
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {
+                                BENCH.rows.map((row) => (
+                                    <tr class="border-b border-rule last:border-b-0">
+                                        <td class="px-5 py-3.5 text-[0.9rem] text-mist-70">
+                                            {row.metric}
+                                        </td>
+                                        <td class="px-5 py-3.5 text-right font-mono text-[0.86rem] tabular-nums text-paper">
+                                            {row.gflick}
+                                        </td>
+                                        <td class="px-5 py-3.5 text-right font-mono text-[0.86rem] tabular-nums text-mist-52">
+                                            {row.ghub}
+                                        </td>
+                                        <td class="px-5 py-3.5 text-right font-mono text-[0.86rem] tabular-nums text-mist">
+                                            {row.cut}
+                                        </td>
+                                    </tr>
+                                ))
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div
+                    class="mt-6 flex flex-col gap-5 border-l-2 border-mist-32 pl-5 lg:flex-row lg:items-center lg:justify-between"
+                >
+                    <p
+                        class="max-w-[68ch] text-[0.92rem] leading-[1.6] text-mist-70"
+                    >
+                        These are the Windows figures. Both stacks were resident
+                        and both recorders sampled concurrently for about 26
+                        minutes, so this is a co-resident comparison rather than
+                        an isolated sequential A/B test, and a preliminary
+                        result rather than a power-draw claim. The Apple Silicon
+                        run went differently: far less memory and I/O, but
+                        slightly{" "}
+                        <span class="text-mist">more</span> CPU than G Hub.
+                    </p>
+                    <a
+                        href="/benchmark"
+                        class="inline-flex shrink-0 items-center gap-[0.45em] border-b border-mist-32 pb-[3px] font-mono text-[0.78rem] text-mist-70 transition-colors hover:text-paper"
+                    >
+                        Both platforms in full
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <section
+            id="install"
+            class="border-t border-rule py-[clamp(64px,8vw,104px)]"
+        >
+            <div class="container-page">
+                <div
+                    class="mb-[clamp(36px,5vw,54px)] flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between"
+                >
+                    <div>
+                        <p class="tag mb-[18px] block">Getting it running</p>
+                        <h2 class="display text-h2">
+                            <span class="block">A hash check,</span>{" "}
+                            <span class="block">then one command</span>
+                        </h2>
+                    </div>
+                    <p class="max-w-[42ch] leading-[1.65] text-mist-70">
+                        Installation is transactional: a failed step rolls back
+                        rather than leaving half a tree behind. Uninstalling
+                        keeps your settings unless you ask it not to.
+                    </p>
+                </div>
+
+                <ol
+                    class="grid gap-px overflow-hidden border border-rule bg-rule lg:grid-cols-3"
+                >
+                    {
+                        STEPS.map((step) => (
+                            <li class="flex min-w-0 flex-col gap-5 bg-blue p-[26px]">
+                                <div class="flex items-baseline gap-3">
+                                    <span class="display shrink-0 text-[1.3rem] leading-none text-mist-32">
+                                        {step.n}
+                                    </span>
+                                    <h3 class="text-[1.2rem] font-[450] tracking-[-0.03em]">
+                                        {step.title}
+                                    </h3>
+                                </div>
+                                <p class="text-[0.9rem] leading-[1.55] text-mist-70">
+                                    {step.body}
+                                </p>
+                                <div class="mt-auto min-w-0">
+                                    <CopyRow
+                                        label={step.command.label}
+                                        value={step.command.value}
+                                    />
+                                </div>
+                            </li>
+                        ))
+                    }
+                </ol>
+
+                <div
+                    class="mt-[30px] flex flex-wrap items-center gap-x-6 gap-y-3"
+                >
+                    <a
+                        href="/setup"
+                        class="inline-flex h-[46px] items-center justify-center gap-[0.45em] rounded-[3px] border border-mist-32 px-5 font-mono text-[0.8rem] font-medium transition-colors hover:border-mist-52 hover:bg-rule-soft"
+                    >
+                        Full setup guide
+                    </a>
+                    <p class="font-mono text-[0.7rem] text-mist-52">
+                        Components, installed paths, repair, and uninstall
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <section class="border-t border-rule py-[clamp(72px,9vw,120px)]">
+            <div
+                class="container-page flex flex-col gap-10 lg:flex-row lg:items-end lg:justify-between"
+            >
+                <div>
+                    <h2 class="display text-h2">
+                        <span class="block">Install it, or read</span>{" "}
+                        <span class="block">every line first</span>
+                    </h2>
+                    <p class="mt-5 max-w-[54ch] leading-[1.8] text-mist-70">
+                        No account, no telemetry, and no background updater.
+                        Every setting it writes is validated and read back from
+                        the device, and the whole thing is MIT licensed.
+                    </p>
+                </div>
+
+                <div class="flex shrink-0 flex-wrap gap-2.5">
+                    <a
+                        href="/download"
+                        class="inline-flex h-[46px] w-full items-center justify-center rounded-[3px] border border-paper bg-paper px-5 font-mono text-[0.8rem] font-medium text-blue-ink transition-colors hover:border-mist hover:bg-mist sm:w-auto"
+                    >
+                        Choose a download
+                    </a>
+                    <a
+                        href={REPO}
+                        target="_blank"
+                        rel="noreferrer"
+                        class="inline-flex h-[46px] w-full items-center justify-center gap-[0.45em] rounded-[3px] border border-mist-32 px-5 font-mono text-[0.8rem] font-medium transition-colors hover:border-mist-52 hover:bg-rule-soft sm:w-auto"
+                    >
+                        Browse the code
+                        <ExternalMark />
+                    </a>
+                </div>
+            </div>
+        </section>
+    </main>
+    <Footer />
+</Layout>
+
+<script>
+    // Narrow the download button to the visitor's platform: an identified
+    // platform gets a direct archive link, anything else keeps the /download/
+    // href already in the markup so the button works without JS.
+    const button = document.getElementById("get");
+    const label = document.getElementById("get-label");
+    const note = document.getElementById("get-note");
+
+    if (button && label && note) {
+        // userAgentData.platform is the non-deprecated source where it exists;
+        // navigator.platform covers Safari and Firefox.
+        const platform = (
+            (navigator as any).userAgentData?.platform ||
+            navigator.platform ||
+            ""
+        ).toLowerCase();
+        const ua = navigator.userAgent.toLowerCase();
+
+        // iPhones and iPads are deliberately excluded: there is no build for
+        // them, and iPadOS reports "macintosh" in its UA string.
+        const touch = navigator.maxTouchPoints > 1;
+
+        if (platform.includes("win")) {
+            label.textContent = "Download for Windows";
+            note.textContent = "Windows 10 or 11, x86_64";
+            button.setAttribute("href", button.dataset.win!);
+        } else if (
+            (platform.includes("mac") || ua.includes("macintosh")) &&
+            !touch
+        ) {
+            label.textContent = "Download for macOS";
+            note.textContent = "Apple Silicon";
+            button.setAttribute("href", button.dataset.mac!);
+        }
+    }
+</script>
+
+<script>
+    const list = document.getElementById("stream");
+
+    if (list) {
+        // Shapes mirror real HID++ 2.0 short/long reports: report id, device
+        // index, feature index, function/sw id, then payload.
+        const FRAMES = [
+            { dir: "rx", bytes: "11 01 09 00 3f 00 00", label: "battery" },
+            { dir: "tx", bytes: "10 01 0a 1f 00 00 00", label: "dpi get" },
+            { dir: "rx", bytes: "11 01 0a 1f 06 40 00", label: "1600 dpi" },
+            { dir: "tx", bytes: "10 01 0d 20 00 00 00", label: "rate get" },
+            { dir: "rx", bytes: "11 01 0d 20 01 00 00", label: "1000 hz" },
+            { dir: "rx", bytes: "11 01 09 00 40 00 00", label: "battery" },
+            { dir: "tx", bytes: "10 01 04 10 00 00 00", label: "profile" },
+            { dir: "rx", bytes: "11 01 04 10 00 01 00", label: "sector 1" },
+        ];
+
+        let i = 0;
+        let clock = 0;
+
+        const stamp = (ms: number) => {
+            const m = String(Math.floor(ms / 60000)).padStart(2, "0");
+            const s = String(Math.floor((ms % 60000) / 1000)).padStart(2, "0");
+            const f = String(ms % 1000).padStart(3, "0");
+            return `${m}:${s}.${f}`;
+        };
+
+        const push = () => {
+            const frame = FRAMES[i % FRAMES.length];
+            i += 1;
+            clock += 220 + ((i * 137) % 700);
+
+            const row = document.createElement("li");
+            row.className = "fresh";
+            row.innerHTML =
+                `<span class="ts">${stamp(clock)}</span>` +
+                `<span class="dir ${frame.dir}">${frame.dir}</span>` +
+                `<span class="bytes">${frame.bytes}</span>` +
+                `<span class="label">${frame.label}</span>`;
+
+            list.append(row);
+            while (list.children.length > 7) list.firstElementChild?.remove();
+        };
+
+        // Fill the panel once, then keep a slow trickle so the page reads as calm.
+        list.replaceChildren();
+        for (let n = 0; n < 7; n += 1) push();
+
+        if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            let timer = window.setInterval(push, 1400);
+            document.addEventListener("visibilitychange", () => {
+                window.clearInterval(timer);
+                if (!document.hidden) timer = window.setInterval(push, 1400);
+            });
+        }
+    }
+</script>
+
+<style>
+    .pip {
+        animation: pulse 2.4s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+        0%,
+        100% {
+            opacity: 1;
+        }
+        50% {
+            opacity: 0.28;
+        }
+    }
+
+    /* Rows are injected by script, so they are styled here rather than inline.
+     Anchored to the bottom so arriving frames land against a stable edge. */
+    .stream {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        /* Rows are nowrap by nature; contain them here so a narrow viewport
+       scrolls the panel instead of the page. */
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .stream::-webkit-scrollbar {
+        display: none;
+    }
+
+    .stream :global(li) {
+        min-width: max-content;
+    }
+
+    .stream :global(li) {
+        display: grid;
+        grid-template-columns: 4.9em 1.9em 1fr auto;
+        gap: 10px;
+        padding: 3.5px 0;
+        color: var(--color-mist-70);
+        white-space: nowrap;
+    }
+
+    .stream :global(li.fresh) {
+        animation: rowin 0.34s ease both;
+    }
+
+    @keyframes rowin {
+        from {
+            opacity: 0;
+            transform: translateY(3px);
+        }
+    }
+
+    .stream :global(.ts) {
+        color: var(--color-mist-52);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .stream :global(.dir) {
+        color: var(--color-mist-52);
+        text-transform: uppercase;
+    }
+
+    .stream :global(.dir.rx) {
+        color: var(--color-paper);
+    }
+
+    .stream :global(.bytes) {
+        color: var(--color-mist);
+    }
+
+    .stream :global(.label) {
+        color: var(--color-mist-52);
+        text-align: right;
+    }
+
+    .stream :global(li:nth-last-child(n + 5)) {
+        opacity: 0.55;
+    }
+
+    @media (max-width: 520px) {
+        .stream {
+            font-size: 0.7rem;
+        }
+
+        .stream :global(li) {
+            grid-template-columns: 4.9em 1.9em 1fr;
+        }
+
+        .stream :global(.label) {
+            display: none;
+        }
+    }
+</style>

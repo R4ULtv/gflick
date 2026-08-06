@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "gflick",
+  "main": "@astrojs/cloudflare/entrypoints/server",
+  "compatibility_date": "2026-08-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "not_found_handling": "404-page"
+  },
+  "routes": [
+    {
+      "pattern": "gflick.app",
+      "custom_domain": true
+    },
+    {
+      "pattern": "www.gflick.app",
+      "custom_domain": true
+    }
+  ]
+}

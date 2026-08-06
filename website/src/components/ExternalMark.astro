@@ -1,0 +1,31 @@
+---
+/**
+ * Marks a link that leaves the site. Decorative: the arrow repeats what the
+ * link text and target already say, so it stays out of the accessibility tree.
+ */
+---
+
+<svg
+    class="mark inline-block size-[0.72em] shrink-0 align-[0.02em]"
+    viewBox="0 0 12 12"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+>
+    <path d="M3.4 8.6 8.6 3.4"></path>
+    <path d="M4.2 3.4h4.4v4.4"></path>
+</svg>
+
+<style>
+    .mark {
+        transition: transform 0.18s ease;
+    }
+
+    a:hover > .mark,
+    a:focus-visible > .mark {
+        transform: translate(1px, -1px);
+    }
+</style>

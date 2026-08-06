@@ -1,0 +1,59 @@
+---
+interface Props {
+    caption?: string;
+    head: string[];
+    rows: (string | number)[][];
+    /** Column indexes rendered right-aligned and monospaced, for figures. */
+    numeric?: number[];
+    /** Minimum table width before the wrapper starts scrolling sideways. */
+    minWidth?: string;
+}
+
+const { caption, head, rows, numeric = [], minWidth = "620px" } = Astro.props;
+---
+
+<div class="overflow-x-auto border border-rule">
+    <table
+        class="w-full border-collapse text-left"
+        style={`min-width:${minWidth}`}
+    >
+        {caption && <caption class="sr-only">{caption}</caption>}
+        <thead>
+            <tr class="border-b border-rule bg-rule-soft">
+                {
+                    head.map((cell, i) => (
+                        <th
+                            scope="col"
+                            class:list={[
+                                "tag px-5 py-3.5 font-normal",
+                                numeric.includes(i) && "text-right",
+                            ]}
+                        >
+                            {cell}
+                        </th>
+                    ))
+                }
+            </tr>
+        </thead>
+        <tbody>
+            {
+                rows.map((row) => (
+                    <tr class="border-b border-rule last:border-b-0">
+                        {row.map((cell, i) => (
+                            <td
+                                class:list={[
+                                    "px-5 py-3.5 align-top",
+                                    numeric.includes(i)
+                                        ? "text-right font-mono text-[0.86rem] tabular-nums text-mist"
+                                        : "text-[0.9rem] leading-[1.5] text-mist-70",
+                                ]}
+                            >
+                                {cell}
+                            </td>
+                        ))}
+                    </tr>
+                ))
+            }
+        </tbody>
+    </table>
+</div>

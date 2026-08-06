@@ -1,0 +1,31 @@
+---
+interface Props {
+    eyebrow: string;
+    /** Hand-broken into lines; the condensed face rags badly if left to wrap. */
+    lines: string[];
+    lead: string;
+}
+
+const { eyebrow, lines, lead } = Astro.props;
+---
+
+<section class="border-b border-rule py-[clamp(52px,7vw,84px)]">
+    <div class="container-page">
+        <p class="tag mb-[18px] block">{eyebrow}</p>
+        <h1 class="display text-h2">
+            {
+                /* Joined with spaces so the accessible name is a sentence, not one run-on word. */
+            }
+            {
+                lines.map((line, i) => (
+                    <>
+                        {i > 0 && " "}
+                        <span class="block">{line}</span>
+                    </>
+                ))
+            }
+        </h1>
+        <p class="mt-5 max-w-[70ch] leading-[1.7] text-mist-70">{lead}</p>
+        <slot />
+    </div>
+</section>

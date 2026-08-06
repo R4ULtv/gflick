@@ -1,0 +1,287 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import ExternalMark from "../components/ExternalMark.astro";
+import { REPO, RELEASES } from "../consts";
+
+const UPDATED = "2026-08-05";
+const UPDATED_LABEL = "August 5, 2026";
+
+const CLOUDFLARE_PRIVACY = "https://www.cloudflare.com/privacypolicy/";
+const GITHUB_PRIVACY =
+    "https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement";
+
+const SUMMARY = [
+    "No analytics, tracking pixels, or advertising",
+    "No cookies and no browser storage",
+    "No accounts, and no form to submit anything",
+    "No fonts, scripts, or assets loaded from third parties",
+];
+---
+
+<Layout
+    title="Privacy - GFlick"
+    description="GFlick's website sets no cookies, runs no analytics, and collects nothing about visitors. The app runs entirely on your machine and sends no telemetry."
+>
+    <Header />
+
+    <main>
+        <section class="border-b border-rule py-[clamp(52px,7vw,84px)]">
+            <div class="container-page">
+                <p class="tag mb-[18px] block">
+                    Last updated <time datetime={UPDATED}>{UPDATED_LABEL}</time>
+                </p>
+                <h1 class="display text-h2">
+                    <span class="block">We don't collect</span>{" "}
+                    <span class="block">anything</span>
+                </h1>
+                <p class="mt-5 max-w-[62ch] leading-[1.7] text-mist-70">
+                    This page describes both the GFlick website and the GFlick
+                    software, because they are separate things with separate
+                    privacy properties. Neither one gathers information about
+                    you.
+                </p>
+
+                <ul
+                    class="mt-[34px] grid max-w-[70ch] gap-px overflow-hidden border border-rule bg-rule sm:grid-cols-2"
+                >
+                    {
+                        SUMMARY.map((item) => (
+                            <li class="flex items-start gap-3 bg-blue px-5 py-[18px] text-[0.92rem] leading-[1.5] text-mist">
+                                <svg
+                                    class="mt-[0.15em] size-[15px] shrink-0 text-mist-52"
+                                    viewBox="0 0 16 16"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="1.6"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    aria-hidden="true"
+                                >
+                                    <path d="M3.2 8.4l3 3 6.6-7" />
+                                </svg>
+                                <span>{item}</span>
+                            </li>
+                        ))
+                    }
+                </ul>
+            </div>
+        </section>
+
+        <section class="py-[clamp(56px,7vw,88px)]">
+            <div class="container-page">
+                <div
+                    class="prose-block flex max-w-[70ch] flex-col gap-[clamp(38px,4vw,52px)]"
+                >
+                    <article>
+                        <h2 class="text-h3 font-[450] tracking-[-0.03em]">
+                            This website
+                        </h2>
+                        <p>
+                            The site is a set of static files - HTML, CSS, one
+                            small script, and self-hosted fonts. There is no
+                            application server, no database, and nothing that
+                            could store a record about you. The fonts are served
+                            from this domain, so loading a page makes no request
+                            to any other company.
+                        </p>
+                        <p>
+                            The one script on the site reads{" "}
+                            <code>navigator.platform</code> to guess whether you are
+                            on Windows or macOS, so the download button can name the
+                            right build. That check happens in your browser, the answer
+                            is never sent anywhere, and nothing is written to storage.
+                            Both downloads stay visible either way.
+                        </p>
+                    </article>
+
+                    <article>
+                        <h2 class="text-h3 font-[450] tracking-[-0.03em]">
+                            Hosting logs
+                        </h2>
+                        <p>
+                            The site is hosted on Cloudflare Pages. Like any web
+                            host, Cloudflare processes the technical details
+                            required to deliver a page - your IP address, the
+                            requested URL, and your user agent - and keeps
+                            aggregate security and performance logs. We do not
+                            add analytics on top of this, and we do not access,
+                            export, or receive per-visitor data from it.
+                        </p>
+                        <p>
+                            This processing is Cloudflare's, under{" "}
+                            <a
+                                href={CLOUDFLARE_PRIVACY}
+                                target="_blank"
+                                rel="noreferrer"
+                                class="ext"
+                                >Cloudflare's privacy policy <ExternalMark /></a
+                            >.
+                        </p>
+                    </article>
+
+                    <article>
+                        <h2 class="text-h3 font-[450] tracking-[-0.03em]">
+                            Downloads and the source
+                        </h2>
+                        <p>
+                            Release archives and the source code are hosted on
+                            GitHub. Every download button and source link on
+                            this site sends you to github.com, and from that
+                            point GitHub is the one serving you. GitHub records
+                            its own request data, described in the{" "}
+                            <a
+                                href={GITHUB_PRIVACY}
+                                target="_blank"
+                                rel="noreferrer"
+                                class="ext"
+                                >GitHub privacy statement <ExternalMark /></a
+                            >.
+                        </p>
+                        <p>
+                            We do not receive download counts tied to
+                            individuals, and there is no referral or affiliate
+                            tracking on those links.
+                        </p>
+                    </article>
+
+                    <article>
+                        <h2 class="text-h3 font-[450] tracking-[-0.03em]">
+                            The GFlick software
+                        </h2>
+                        <p>
+                            The agent, tray, and CLI run entirely on your
+                            computer. They send no telemetry, no crash reports,
+                            and no usage statistics, and they do not check for
+                            updates. GFlick has no server component and no
+                            account system, so there is nothing for it to report
+                            to.
+                        </p>
+                        <p>
+                            What it writes locally is your own configuration:
+                            per-user preferences stored in your operating
+                            system's standard application-data location, and -
+                            only when you ask for it - settings written to your
+                            mouse's own memory. Both stay on your machine and
+                            your hardware. Uninstalling is covered in the setup
+                            documentation, including what is kept and what is
+                            removed.
+                        </p>
+                        <p>
+                            You can verify all of this rather than take our word
+                            for it: the full source is{" "}
+                            <a
+                                href={REPO}
+                                target="_blank"
+                                rel="noreferrer"
+                                class="ext">on GitHub <ExternalMark /></a
+                            >, under the MIT licence.
+                        </p>
+                    </article>
+
+                    <article>
+                        <h2 class="text-h3 font-[450] tracking-[-0.03em]">
+                            Children
+                        </h2>
+                        <p>
+                            GFlick is a utility for computer mice and is not
+                            directed at children. Since we collect nothing from
+                            anyone, we hold no information about children
+                            either.
+                        </p>
+                    </article>
+
+                    <article>
+                        <h2 class="text-h3 font-[450] tracking-[-0.03em]">
+                            Changes
+                        </h2>
+                        <p>
+                            If this policy changes, the date at the top of the
+                            page changes with it. Because the site is versioned
+                            in public, you can also see the full history of this
+                            page in the repository. GFlick is experimental
+                            software under active development; should a future
+                            version ever need to collect something, that would
+                            be described here and would not be enabled without
+                            asking you first.
+                        </p>
+                    </article>
+
+                    <article>
+                        <h2 class="text-h3 font-[450] tracking-[-0.03em]">
+                            Contact
+                        </h2>
+                        <p>
+                            Questions about this policy are best raised as an
+                            issue in the{" "}
+                            <a
+                                href={REPO}
+                                target="_blank"
+                                rel="noreferrer"
+                                class="ext"
+                                >project repository <ExternalMark /></a
+                            >, where the answer is visible to everyone else who
+                            wondered the same thing.
+                        </p>
+                    </article>
+                </div>
+
+                <div class="mt-[clamp(44px,5vw,60px)] flex flex-wrap gap-2.5">
+                    <a
+                        href="/download"
+                        class="inline-flex h-[46px] w-full items-center justify-center rounded-[3px] border border-paper bg-paper px-5 font-mono text-[0.8rem] font-medium text-blue-ink transition-colors hover:border-mist hover:bg-mist sm:w-auto"
+                    >
+                        Choose a download
+                    </a>
+                    <a
+                        href={RELEASES}
+                        target="_blank"
+                        rel="noreferrer"
+                        class="inline-flex h-[46px] w-full items-center justify-center gap-[0.45em] rounded-[3px] border border-mist-32 px-5 font-mono text-[0.8rem] font-medium transition-colors hover:border-mist-52 hover:bg-rule-soft sm:w-auto"
+                    >
+                        All releases
+                        <ExternalMark />
+                    </a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <Footer />
+</Layout>
+
+<style>
+    .prose-block h2 {
+        margin-bottom: 14px;
+    }
+
+    .prose-block p {
+        line-height: 1.8;
+        color: var(--color-mist-70);
+    }
+
+    .prose-block p + p {
+        margin-top: 16px;
+    }
+
+    .prose-block code {
+        border-radius: 3px;
+        background: var(--color-well);
+        padding: 2px 6px;
+        font-family: var(--font-geist-mono), monospace;
+        font-size: 0.85rem;
+        color: var(--color-mist);
+    }
+
+    .prose-block a.ext {
+        display: inline;
+        border-bottom: 1px solid var(--color-mist-32);
+        color: var(--color-mist);
+        transition: color 0.15s ease;
+    }
+
+    .prose-block a.ext:hover {
+        color: var(--color-paper);
+    }
+</style>

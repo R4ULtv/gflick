@@ -1,0 +1,44 @@
+---
+import ExternalMark from "./ExternalMark.astro";
+import { REPO, VERSION } from "../consts";
+
+/**
+ * Deliberately not a sitemap. The header already carries the page links on every
+ * subpage, so repeating them here put the same four routes twice on one screen.
+ *
+ * Privacy is the exception and stays: nothing else on the site links to it, and a
+ * privacy policy has to be reachable. Setup is one hop away via /download/.
+ */
+---
+
+<footer class="border-t border-rule py-8">
+    <div
+        class="container-page flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+    >
+        <div class="flex items-center gap-[10px]">
+            <span
+                class="font-mono text-[0.7rem] tracking-[0.06em] text-mist-52"
+            >
+                v{VERSION} · <span class="uppercase">MIT</span>
+            </span>
+        </div>
+
+        <div
+            class="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-[0.7rem] tracking-[0.06em] text-mist-52 uppercase"
+        >
+            <span>Not affiliated with Logitech</span>
+            <a href="/privacy" class="transition-colors hover:text-paper"
+                >Privacy</a
+            >
+            <a
+                href={REPO}
+                target="_blank"
+                rel="noreferrer"
+                class="inline-flex items-center gap-[0.3em] transition-colors hover:text-paper"
+            >
+                Source
+                <ExternalMark />
+            </a>
+        </div>
+    </div>
+</footer>

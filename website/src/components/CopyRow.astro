@@ -1,0 +1,125 @@
+---
+interface Props {
+    label: string;
+    value: string;
+    /** Dims the text for supporting values like a verify command. */
+    muted?: boolean;
+}
+
+const { label, value, muted = false } = Astro.props;
+---
+
+{
+    /* min-w-0 all the way down: without it the nowrap row below sets the width of
+    every ancestor and pushes the card past the viewport. */
+}
+<div class="flex min-w-0 flex-col gap-2.5">
+    <span class="tag">{label}</span>
+
+    <div
+        class="copy flex min-w-0 items-stretch overflow-hidden rounded-[3px] bg-well"
+        data-value={value}
+    >
+        <code
+            class:list={[
+                "min-w-0 flex-1 overflow-x-auto px-3 py-2.5 font-mono text-[0.8rem] whitespace-nowrap",
+                muted ? "text-mist-70" : "text-mist",
+            ]}>{value}</code
+        >
+
+        <button
+            type="button"
+            class="btn flex w-[38px] shrink-0 items-center justify-center border-l border-rule text-mist-52 transition-colors hover:bg-rule-soft hover:text-paper"
+            aria-label={`Copy ${label.toLowerCase()}`}
+        >
+            <svg
+                class="ico-copy size-[13px]"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+            >
+                <rect x="5.75" y="5.75" width="8.5" height="8.5" rx="1.5"
+                ></rect>
+                <path
+                    d="M10.25 5.75V3.25a1.5 1.5 0 0 0-1.5-1.5h-5.5a1.5 1.5 0 0 0-1.5 1.5v5.5a1.5 1.5 0 0 0 1.5 1.5h2.5"
+                ></path>
+            </svg>
+            <svg
+                class="ico-done size-[13px]"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+                {...{ hidden: true }}
+            >
+                <path d="M2.75 8.5l3.25 3.25 7.25-7.25"></path>
+            </svg>
+        </button>
+    </div>
+</div>
+
+<style>
+    .copy code {
+        scrollbar-width: none;
+    }
+
+    .copy code::-webkit-scrollbar {
+        display: none;
+    }
+
+    .copy.is-done .btn {
+        color: var(--color-paper);
+    }
+
+    /* The UA stylesheet's [hidden] rule does not reliably cover SVG. */
+    .copy svg[hidden] {
+        display: none;
+    }
+</style>
+
+<script>
+    // One listener for every row on the page.
+    document.querySelectorAll<HTMLElement>(".copy").forEach((row) => {
+        const button = row.querySelector("button");
+        const copy = row.querySelector<SVGElement>(".ico-copy");
+        const done = row.querySelector<SVGElement>(".ico-done");
+        const value = row.dataset.value ?? "";
+
+        if (!button || !copy || !done) return;
+
+        const label = button.getAttribute("aria-label") ?? "Copy";
+        let reset: number | undefined;
+
+        button.addEventListener("click", async () => {
+            try {
+                await navigator.clipboard.writeText(value);
+            } catch {
+                // Clipboard access needs a secure context; leave the row untouched
+                // rather than claiming a copy that did not happen.
+                return;
+            }
+
+            row.classList.add("is-done");
+            // SVGElement does not reflect `.hidden` to the attribute the way an HTML
+            // element does, so toggle the attribute itself.
+            copy.setAttribute("hidden", "");
+            done.removeAttribute("hidden");
+            button.setAttribute("aria-label", "Copied");
+
+            window.clearTimeout(reset);
+            reset = window.setTimeout(() => {
+                row.classList.remove("is-done");
+                copy.removeAttribute("hidden");
+                done.setAttribute("hidden", "");
+                button.setAttribute("aria-label", label);
+            }, 1600);
+        });
+    });
+</script>

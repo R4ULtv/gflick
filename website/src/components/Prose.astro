@@ -1,0 +1,66 @@
+---
+interface Props {
+    /** Reading measure. Wider suits pages whose copy sits beside tables. */
+    measure?: string;
+}
+
+const { measure = "70ch" } = Astro.props;
+---
+
+<div
+    class="prose flex flex-col gap-[clamp(34px,3.5vw,46px)]"
+    style={`max-width:${measure}`}
+>
+    <slot />
+</div>
+
+<style is:global>
+    .prose h2 {
+        font-size: var(--text-h3);
+        font-weight: 450;
+        letter-spacing: -0.03em;
+        margin-bottom: 14px;
+    }
+
+    .prose h3 {
+        font-size: 1.05rem;
+        font-weight: 500;
+        margin-bottom: 10px;
+        color: var(--color-mist);
+    }
+
+    .prose p {
+        line-height: 1.8;
+        color: var(--color-mist-70);
+    }
+
+    .prose p + p,
+    .prose p + ul,
+    .prose ul + p {
+        margin-top: 16px;
+    }
+
+    .prose li {
+        line-height: 1.7;
+        color: var(--color-mist-70);
+    }
+
+    .prose code {
+        border-radius: 3px;
+        background: var(--color-well);
+        padding: 2px 6px;
+        font-family: var(--font-geist-mono), monospace;
+        font-size: 0.85rem;
+        color: var(--color-mist);
+    }
+
+    .prose a {
+        border-bottom: 1px solid var(--color-mist-32);
+        color: var(--color-mist);
+        transition: color 0.15s ease;
+    }
+
+    .prose a:hover {
+        color: var(--color-paper);
+    }
+</style>

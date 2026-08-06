@@ -1,0 +1,254 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import ExternalMark from "../components/ExternalMark.astro";
+import PageHead from "../components/PageHead.astro";
+import DataTable from "../components/DataTable.astro";
+import Prose from "../components/Prose.astro";
+import CopyRow from "../components/CopyRow.astro";
+import { SETUP_DOC, RELEASES } from "../consts";
+
+const STEPS = [
+    {
+        n: "01",
+        title: "Verify the archive",
+        body: "Release artifacts are unsigned and experimental. Download the user bundle for your platform along with SHA256SUMS, then compare the hash before you extract anything. Substitute the release tag for <version>.",
+        commands: [
+            {
+                label: "Windows PowerShell",
+                value: "(Get-FileHash .\\gflick-<version>-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()",
+            },
+            {
+                label: "Apple Silicon macOS",
+                value: "shasum -a 256 gflick-<version>-macos-aarch64.tar.gz",
+            },
+        ],
+    },
+    {
+        n: "02",
+        title: "Run the installer",
+        body: "Extract the archive and run the bootstrapper from the extracted directory. It needs no Rust toolchain and no compiler. The default installs the agent and the tray.",
+        commands: [{ label: "Both platforms", value: "gflick-setup install" }],
+    },
+    {
+        n: "03",
+        title: "Choose components, if you want",
+        body: "A headless machine or a scripted setup does not need the tray. Pass an explicit component list to override the default.",
+        commands: [
+            {
+                label: "Headless, agent only",
+                value: "gflick-setup install --components agent",
+            },
+            {
+                label: "Agent, tray, and the CLI",
+                value: "gflick-setup install --components agent,tray,cli",
+            },
+        ],
+    },
+    {
+        n: "04",
+        title: "Confirm it came up",
+        body: "The status command reports what is installed and whether the agent is running. Repair reinstalls anything missing or mismatched without touching your settings.",
+        commands: [
+            { label: "Check", value: "gflick-setup status" },
+            { label: "Fix", value: "gflick-setup repair" },
+        ],
+    },
+];
+
+const COMPONENTS = [
+    [
+        "agent",
+        "Required",
+        "The device owner. Holds HID sessions, refreshes state, persists settings, and serves local IPC.",
+    ],
+    [
+        "tray",
+        "Optional, on by default",
+        "Notification-area and menu-bar status client. Subscribes to events and sleeps between changes.",
+    ],
+    [
+        "cli",
+        "Optional",
+        "The gflick command, for scripting and shell control of a running agent.",
+    ],
+    [
+        "settings",
+        "Reserved",
+        "The future primary interface. Cannot be selected until its real payload ships.",
+    ],
+];
+
+const PATHS = [
+    ["Windows", "Executables", "%LOCALAPPDATA%\\gflick\\bin"],
+    ["Windows", "Settings and state", "%APPDATA%\\gflick"],
+    ["macOS", "Executables", "~/Library/Application Support/gflick"],
+    ["macOS", "CLI symlink", "~/.local/bin/gflick"],
+    ["macOS", "Settings and state", "~/Library/Application Support/gflick"],
+];
+---
+
+<Layout
+    title="Setup - GFlick"
+    description="How to verify, install, inspect, repair, and remove an GFlick release bundle on Windows and Apple Silicon macOS."
+>
+    <Header />
+
+    <main>
+        <PageHead
+            eyebrow="Unsigned, experimental builds"
+            lines={["Four steps,", "and a hash check"]}
+            lead="Installing a release bundle does not require Rust or a compiler. It does require you to verify the download yourself, because nothing here is code-signed or notarised yet."
+        >
+            <a
+                href={RELEASES}
+                target="_blank"
+                rel="noreferrer"
+                class="mt-8 inline-flex h-[46px] items-center justify-center gap-[0.45em] rounded-[3px] border border-mist-32 px-5 font-mono text-[0.8rem] font-medium transition-colors hover:border-mist-52 hover:bg-rule-soft"
+            >
+                Latest release
+                <ExternalMark />
+            </a>
+        </PageHead>
+
+        <section class="border-b border-rule py-[clamp(56px,7vw,88px)]">
+            <div
+                class="container-page flex flex-col gap-[clamp(38px,4vw,54px)]"
+            >
+                {
+                    STEPS.map((step) => (
+                        <div class="grid gap-6 md:grid-cols-[auto_1fr] md:gap-10">
+                            <p class="display text-[2.4rem] leading-none text-mist-32">
+                                {step.n}
+                            </p>
+                            <div class="min-w-0">
+                                <h2 class="text-h3 font-[450] tracking-[-0.03em]">
+                                    {step.title}
+                                </h2>
+                                <p class="mt-3.5 max-w-[70ch] leading-[1.7] text-mist-70">
+                                    {step.body}
+                                </p>
+                                <div class="mt-6 flex max-w-[70ch] min-w-0 flex-col gap-5">
+                                    {step.commands.map((cmd) => (
+                                        <CopyRow
+                                            label={cmd.label}
+                                            value={cmd.value}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                }
+            </div>
+        </section>
+
+        <section class="border-b border-rule py-[clamp(56px,7vw,88px)]">
+            <div class="container-page">
+                <div class="mb-[clamp(26px,3vw,36px)] max-w-[70ch]">
+                    <h2 class="text-h3 font-[450] tracking-[-0.03em]">
+                        Components
+                    </h2>
+                    <p class="mt-4 leading-[1.7] text-mist-70">
+                        The bundle ships several executables and lets you pick
+                        which ones get installed and registered.
+                    </p>
+                </div>
+
+                <DataTable
+                    caption="Installable components and their status"
+                    head={["Component", "Status", "What it does"]}
+                    rows={COMPONENTS}
+                    minWidth="640px"
+                />
+            </div>
+        </section>
+
+        <section class="border-b border-rule py-[clamp(56px,7vw,88px)]">
+            <div class="container-page">
+                <div class="mb-[clamp(26px,3vw,36px)] max-w-[70ch]">
+                    <h2 class="text-h3 font-[450] tracking-[-0.03em]">
+                        Where things go
+                    </h2>
+                    <p class="mt-4 leading-[1.7] text-mist-70">
+                        Everything installs per user. Nothing is written to a
+                        system directory, and no administrator or root privilege
+                        is requested.
+                    </p>
+                </div>
+
+                <DataTable
+                    caption="Installed locations by platform"
+                    head={["Platform", "What", "Location"]}
+                    rows={PATHS}
+                    minWidth="600px"
+                />
+            </div>
+        </section>
+
+        <section class="py-[clamp(56px,7vw,88px)]">
+            <div class="container-page">
+                <Prose measure="74ch">
+                    <div>
+                        <h2>If an install goes wrong</h2>
+                        <p>
+                            Installation is transactional. If a step fails
+                            partway through, the installer rolls the change back
+                            rather than leaving a half-installed tree behind. <code
+                                >gflick-setup status</code
+                            > reports what is present and what is running; <code
+                                >repair</code
+                            > reinstalls anything missing or mismatched and leaves
+                            your settings alone.
+                        </p>
+                        <p>
+                            Intel macOS is rejected outright rather than
+                            installed and left to fail later. The current target
+                            is Windows 10/11 on x86-64 and Apple Silicon macOS.
+                        </p>
+                    </div>
+
+                    <div>
+                        <h2>Removing it</h2>
+                        <p>
+                            <code>gflick-setup uninstall</code> stops the agent, removes
+                            the executables, and unregisters the startup entry. It
+                            keeps your settings and state by default, so a later reinstall
+                            picks up where you left off. Add <code
+                                >--remove-user-data</code
+                            > to delete those too.
+                        </p>
+                    </div>
+
+                    <div>
+                        <h2>Two things worth knowing</h2>
+                        <p>
+                            The devtools archive is a separate download and is
+                            not part of a normal install. Its Probe executable
+                            opens HID directly and must not run at the same time
+                            as the agent, because they compete for the same
+                            interface.
+                        </p>
+                        <p>
+                            When you test against real hardware, fully exit
+                            Logitech G HUB first. It contends for the same HID++
+                            interfaces and will reapply its own active profile
+                            underneath you.
+                        </p>
+                        <p>
+                            Bundle verification, the generation-token handshake
+                            between agent and tray, and the full command
+                            reference are in the{" "}
+                            <a href={SETUP_DOC} target="_blank" rel="noreferrer"
+                                >setup README <ExternalMark /></a
+                            >.
+                        </p>
+                    </div>
+                </Prose>
+            </div>
+        </section>
+    </main>
+
+    <Footer />
+</Layout>
