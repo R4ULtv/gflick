@@ -1,3 +1,9 @@
+# This file exists for allowBuilds, not to group packages - the site is a single
+# project. pnpm 10 still rejects a workspace file without `packages`, so the root
+# lists itself; pnpm 11 tolerates its absence.
+packages:
+  - "."
+
 allowBuilds:
   esbuild: true
   sharp: true
