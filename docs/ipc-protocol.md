@@ -122,6 +122,23 @@ cargo run -q -p gflick-agent -- --events
 
 Use `--event-count 1` to exit after one event during automated diagnostics.
 
+### Disconnecting
+
+A client may hang up at any time without sending anything first, and is expected to
+reconnect freely — the settings window retries every five seconds.
+
+The agent watches each subscriber's read half and drops that subscriber as soon as it
+reports end-of-stream, rather than waiting for the next published event to fail
+writing. Otherwise a client leaving during a quiet period holds its slot and parks a
+thread until an event happens to arrive, which on an idle mouse can be a long time.
+
+Nothing is written to a connection to test it: clients parse every line, so a probe
+byte — even a bare newline — would be a parse error on a healthy connection.
+
+Errors that only mean the peer left (`BrokenPipe`, `ConnectionReset`,
+`ConnectionAborted`, `UnexpectedEof`, and Windows `ERROR_NO_DATA`/232) are not logged.
+Any other failure on a client connection still prints.
+
 ## Safety boundaries
 
 The agent is the only process that owns open mouse sessions. Client threads submit

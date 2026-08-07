@@ -1,6 +1,10 @@
 use std::{
     io::{self, BufRead, BufReader, Read, Write},
-    sync::{Arc, Mutex, mpsc},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
     thread,
     time::Duration,
 };
@@ -10,20 +14,50 @@ use gflick_protocol::{
     AgentEvent, ClientRequest, ErrorCode, LOCAL_SOCKET_NAME, MAX_MESSAGE_BYTES, PROTOCOL_VERSION,
     RequestCommand, ResponseData, ServerMessage,
 };
+use interprocess::TryClone;
 use interprocess::local_socket::{
     GenericFilePath, GenericNamespaced, Listener, ListenerOptions, Stream, prelude::*,
 };
 
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Identifies subscribers so a disconnect can remove the right one.
+static NEXT_SUBSCRIBER_ID: AtomicU64 = AtomicU64::new(1);
+
+/// True when an I/O failure just means the peer hung up.
+fn is_client_hangup(error: &anyhow::Error) -> bool {
+    /// Windows reports a half-closed pipe as this, not as a broken pipe.
+    const ERROR_NO_DATA: i32 = 232;
+
+    error.chain().any(|cause| {
+        cause.downcast_ref::<io::Error>().is_some_and(|io_error| {
+            matches!(
+                io_error.kind(),
+                io::ErrorKind::BrokenPipe
+                    | io::ErrorKind::ConnectionReset
+                    | io::ErrorKind::ConnectionAborted
+                    | io::ErrorKind::UnexpectedEof
+            ) || io_error.raw_os_error() == Some(ERROR_NO_DATA)
+        })
+    })
+}
+
 pub struct PendingRequest {
     pub request: ClientRequest,
     pub reply: mpsc::SyncSender<ServerMessage>,
 }
 
+/// Keyed so a disconnecting client can remove its own slot.
+struct Subscriber {
+    id: u64,
+    events: mpsc::Sender<AgentEvent>,
+}
+
+type Subscribers = Arc<Mutex<Vec<Subscriber>>>;
+
 pub struct IpcHandle {
     requests: mpsc::Receiver<PendingRequest>,
-    subscribers: Arc<Mutex<Vec<mpsc::Sender<AgentEvent>>>>,
+    subscribers: Subscribers,
 }
 
 impl IpcHandle {
@@ -48,7 +82,7 @@ impl IpcHandle {
             .subscribers
             .lock()
             .expect("IPC subscriber mutex poisoned");
-        subscribers.retain(|subscriber| subscriber.send(event.clone()).is_ok());
+        subscribers.retain(|subscriber| subscriber.events.send(event.clone()).is_ok());
     }
 }
 
@@ -150,7 +184,7 @@ fn connect() -> io::Result<Stream> {
 fn accept_connections(
     listener: Listener,
     requests: mpsc::Sender<PendingRequest>,
-    subscribers: Arc<Mutex<Vec<mpsc::Sender<AgentEvent>>>>,
+    subscribers: Subscribers,
 ) {
     for connection in listener.incoming() {
         match connection {
@@ -160,8 +194,11 @@ fn accept_connections(
                 if let Err(error) = thread::Builder::new()
                     .name("gflick-ipc-client".to_owned())
                     .spawn(move || {
-                        if let Err(error) = handle_client(stream, requests, subscribers) {
-                            eprintln!("IPC client disconnected: {error:#}");
+                        // A hangup is routine; only real faults are printed.
+                        if let Err(error) = handle_client(stream, requests, subscribers)
+                            && !is_client_hangup(&error)
+                        {
+                            eprintln!("IPC client failed: {error:#}");
                         }
                     })
                 {
@@ -176,7 +213,7 @@ fn accept_connections(
 fn handle_client(
     stream: Stream,
     requests: mpsc::Sender<PendingRequest>,
-    subscribers: Arc<Mutex<Vec<mpsc::Sender<AgentEvent>>>>,
+    subscribers: Subscribers,
 ) -> Result<()> {
     let mut reader = BufReader::new(&stream);
     loop {
@@ -210,18 +247,30 @@ fn handle_client(
 
         if matches!(request.command, RequestCommand::Subscribe) {
             let (event_tx, event_rx) = mpsc::channel();
+            let subscriber_id = NEXT_SUBSCRIBER_ID.fetch_add(1, Ordering::Relaxed);
             subscribers
                 .lock()
                 .expect("IPC subscriber mutex poisoned")
-                .push(event_tx);
+                .push(Subscriber {
+                    id: subscriber_id,
+                    events: event_tx,
+                });
             write_message(
                 &stream,
                 &ServerMessage::success(request.id, ResponseData::Subscribed),
             )?;
-            for event in event_rx {
-                write_message(&stream, &ServerMessage::event(event))?;
+
+            // Without this, an idle subscriber only notices a hangup when the
+            // next event finally fails to write.
+            spawn_hangup_watcher(&stream, subscriber_id, Arc::clone(&subscribers))?;
+
+            loop {
+                match event_rx.recv() {
+                    Ok(event) => write_message(&stream, &ServerMessage::event(event))?,
+                    // Pruned by the watcher: the client is gone.
+                    Err(mpsc::RecvError) => return Ok(()),
+                }
             }
-            return Ok(());
         }
 
         let request_id = request.id;
@@ -265,6 +314,36 @@ fn read_line_limited(reader: &mut impl BufRead) -> Result<Option<String>> {
         .map(Some)
 }
 
+/// Drops a subscriber once its read half reports EOF.
+///
+/// A write probe is not an option: clients parse every line, so even a bare
+/// newline would be a parse error on a healthy connection.
+fn spawn_hangup_watcher(
+    stream: &Stream,
+    subscriber_id: u64,
+    subscribers: Subscribers,
+) -> Result<()> {
+    let watched = stream
+        .try_clone()
+        .context("could not watch the subscriber connection for disconnect")?;
+
+    thread::Builder::new()
+        .name("gflick-ipc-hangup".to_owned())
+        .spawn(move || {
+            let mut reader = &watched;
+            let mut discard = [0_u8; 64];
+            // Subscribers send nothing; only the end of the stream matters.
+            while matches!(reader.read(&mut discard), Ok(1..)) {}
+            subscribers
+                .lock()
+                .expect("IPC subscriber mutex poisoned")
+                .retain(|subscriber| subscriber.id != subscriber_id);
+        })
+        .with_context(|| format!("failed to watch subscription {subscriber_id} for disconnect"))?;
+
+    Ok(())
+}
+
 fn write_message(stream: &Stream, message: &ServerMessage) -> Result<()> {
     let mut writer = stream;
     serde_json::to_writer(&mut writer, message)?;
@@ -292,5 +371,90 @@ mod tests {
         let input = vec![b'x'; MAX_MESSAGE_BYTES + 1];
         let mut reader = BufReader::new(input.as_slice());
         assert!(read_line_limited(&mut reader).is_err());
+    }
+
+    #[test]
+    fn treats_peer_closure_as_a_hangup() {
+        for kind in [
+            io::ErrorKind::BrokenPipe,
+            io::ErrorKind::ConnectionReset,
+            io::ErrorKind::ConnectionAborted,
+            io::ErrorKind::UnexpectedEof,
+        ] {
+            let error = anyhow::Error::from(io::Error::new(kind, "peer left"));
+            assert!(is_client_hangup(&error), "{kind:?} should be a hangup");
+        }
+    }
+
+    #[test]
+    fn treats_windows_pipe_closing_as_a_hangup() {
+        let error = anyhow::Error::from(io::Error::from_raw_os_error(232));
+        assert!(is_client_hangup(&error));
+    }
+
+    #[test]
+    fn finds_a_hangup_through_added_context() {
+        let error = anyhow::Error::from(io::Error::new(io::ErrorKind::BrokenPipe, "peer left"))
+            .context("while publishing an event");
+        assert!(is_client_hangup(&error));
+    }
+
+    #[test]
+    fn dropping_a_subscriber_ends_its_parked_recv() {
+        // Stands in for the watcher pruning its slot on EOF.
+        let (event_tx, event_rx) = mpsc::channel();
+        let subscribers: Subscribers = Arc::new(Mutex::new(vec![Subscriber {
+            id: 7,
+            events: event_tx,
+        }]));
+
+        subscribers
+            .lock()
+            .expect("subscriber mutex")
+            .retain(|subscriber| subscriber.id != 7);
+
+        assert!(subscribers.lock().expect("subscriber mutex").is_empty());
+        assert!(matches!(event_rx.recv(), Err(mpsc::RecvError)));
+    }
+
+    #[test]
+    fn pruning_one_subscriber_leaves_the_others_connected() {
+        let (first_tx, first_rx) = mpsc::channel();
+        let (second_tx, second_rx) = mpsc::channel();
+        let subscribers: Subscribers = Arc::new(Mutex::new(vec![
+            Subscriber {
+                id: 1,
+                events: first_tx,
+            },
+            Subscriber {
+                id: 2,
+                events: second_tx,
+            },
+        ]));
+
+        subscribers
+            .lock()
+            .expect("subscriber mutex")
+            .retain(|subscriber| subscriber.id != 1);
+
+        assert!(matches!(first_rx.recv(), Err(mpsc::RecvError)));
+        let survivors = subscribers.lock().expect("subscriber mutex");
+        assert_eq!(survivors.len(), 1);
+        assert!(
+            survivors[0]
+                .events
+                .send(AgentEvent::ApplicationShuttingDown)
+                .is_ok()
+        );
+        assert!(second_rx.recv().is_ok());
+    }
+
+    #[test]
+    fn keeps_reporting_real_faults() {
+        let oversized = anyhow::anyhow!("IPC message exceeds the limit");
+        assert!(!is_client_hangup(&oversized));
+
+        let denied = anyhow::Error::from(io::Error::new(io::ErrorKind::PermissionDenied, "denied"));
+        assert!(!is_client_hangup(&denied));
     }
 }
