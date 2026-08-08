@@ -188,6 +188,10 @@ impl Agent {
             }
         }
 
+        if self.restore_preferences {
+            self.remember_display_name(hardware_id.as_deref(), display_name.as_deref());
+        }
+
         print_initial_state(device, hardware_id.as_deref(), &settings);
         let state = device_state(
             device,
@@ -641,6 +645,23 @@ impl Agent {
         Ok(protocol::ResponseData::Acknowledged)
     }
 
+    /// Caches the reported model name against the hardware identity so the name
+    /// survives sleep, reconnects, and agent restarts. Writes only on a change,
+    /// since discovery runs on every pass. A failure here must not fail setup.
+    fn remember_display_name(&mut self, hardware_id: Option<&str>, display_name: Option<&str>) {
+        let (Some(hardware_id), Some(display_name)) = (hardware_id, display_name) else {
+            return;
+        };
+        let preferences = self.settings.device_mut(hardware_id);
+        if preferences.last_display_name.as_deref() == Some(display_name) {
+            return;
+        }
+        preferences.last_display_name = Some(display_name.to_owned());
+        if let Err(error) = self.save_settings() {
+            eprintln!("Could not save the device name for {hardware_id}: {error:#}");
+        }
+    }
+
     fn hardware_id(&self, device_id: &str) -> Option<String> {
         self.active
             .get(device_id)
@@ -757,6 +778,8 @@ fn capture_device_preferences(
         lighting: None,
         nickname: None,
         sort_order: None,
+        // Recorded separately once the mouse reports its name.
+        last_display_name: None,
     }
 }
 
@@ -1198,7 +1221,11 @@ fn device_summary(
         vendor_id: device.vendor_id,
         product_id: device.product_id,
         product_name: device.product_name.clone(),
-        display_name: display_name.map(str::to_owned),
+        // A live name wins; the cached one keeps a sleeping mouse identifiable
+        // instead of showing the receiver's USB product name.
+        display_name: display_name
+            .map(str::to_owned)
+            .or_else(|| preferences.and_then(|preferences| preferences.last_display_name.clone())),
         serial_number: device.serial_number.clone(),
         nickname: preferences.and_then(|p| p.nickname.clone()),
         sort_order: preferences.and_then(|p| p.sort_order),
@@ -1768,6 +1795,7 @@ mod tests {
             lighting: None,
             nickname: None,
             sort_order: None,
+            last_display_name: None,
         };
         let saved_host = preferences.host.clone();
         state.settings.configuration_source = Some(protocol::ConfigurationSource::Onboard {

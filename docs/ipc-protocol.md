@@ -82,6 +82,13 @@ by the mouse through HID++. Some firmware does not expose it, particularly when 
 through a receiver. Clients must then fall back to the USB `product_name` and must not
 guess a model from a receiver product ID.
 
+Reading that name requires an open HID++ session, so a sleeping or disconnected mouse
+cannot report it. The agent caches the last name each `hardware_id` reported and serves
+it when no session is open, which stops a wireless mouse from appearing under its
+receiver's USB product name while it is away. A live name always takes precedence over
+the cached one. The cache is only available after a device has been ready at least once,
+so a mouse that has never been opened still has no `display_name`.
+
 `nickname` and `sort_order` are additive optional fields holding the host-side name
 and list position described above. They are stored by the agent, never written to the
 device, and are absent until the mouse has a `hardware_id`. Clients that show a

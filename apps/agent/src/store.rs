@@ -77,6 +77,11 @@ pub struct DevicePreferences {
     /// Host-side list position; `None` sorts after every ordered device.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<u32>,
+    /// Last model name the mouse reported over HID++. Cached so a sleeping or
+    /// disconnected device keeps its name instead of falling back to the
+    /// receiver's USB product name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_display_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -274,6 +279,7 @@ mod tests {
             lighting: None,
             nickname: None,
             sort_order: None,
+            last_display_name: None,
         }
     }
 
@@ -308,6 +314,26 @@ mod tests {
         assert_eq!(device.sort_order, Some(2));
     }
 
+    #[test]
+    fn persists_the_last_reported_display_name() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        let mut store = SettingsStore::load(path.clone()).unwrap();
+        store.device_mut("046d:unit:1077e69f").last_display_name =
+            Some("PRO X Superlight 2".to_owned());
+        store.save().unwrap();
+
+        let loaded = SettingsStore::load(path).unwrap();
+        assert_eq!(
+            loaded
+                .device("046d:unit:1077e69f")
+                .unwrap()
+                .last_display_name
+                .as_deref(),
+            Some("PRO X Superlight 2")
+        );
+    }
+
     /// Settings written before these fields existed must still load.
     #[test]
     fn loads_preferences_without_host_metadata() {
@@ -323,6 +349,7 @@ mod tests {
         let device = store.device("unit").unwrap();
         assert_eq!(device.nickname, None);
         assert_eq!(device.sort_order, None);
+        assert_eq!(device.last_display_name, None);
         assert_eq!(device.host.dpi, Some(800));
     }
 
