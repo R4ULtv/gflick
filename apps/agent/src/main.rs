@@ -189,7 +189,7 @@ impl Agent {
         }
 
         if self.restore_preferences {
-            self.remember_display_name(hardware_id.as_deref(), display_name.as_deref());
+            self.remember_identity(hardware_id.as_deref(), display_name.as_deref(), device);
         }
 
         print_initial_state(device, hardware_id.as_deref(), &settings);
@@ -468,17 +468,24 @@ impl Agent {
                         } else {
                             protocol::DeviceAvailability::Initializing
                         };
-                        let hardware_id = active
+                        let session_hardware_id = active
                             .and_then(|mouse| mouse.hardware_id.as_deref())
                             .or_else(|| {
                                 unavailable.and_then(|device| device.hardware_id.as_deref())
                             });
+                        // A mouse that was asleep when the agent started has no
+                        // session to report its identity, so fall back to the USB
+                        // identity recorded the last time it was ready.
+                        let stored = match session_hardware_id {
+                            Some(id) => self.settings.device(id).map(|p| (id, p)),
+                            None => self.settings.device_by_usb_identity(&usb_identity(device)),
+                        };
                         device_summary(
                             device,
                             availability,
-                            hardware_id,
+                            session_hardware_id.or(stored.map(|(id, _)| id)),
                             active.and_then(|mouse| mouse.display_name.as_deref()),
-                            hardware_id.and_then(|id| self.settings.device(id)),
+                            stored.map(|(_, preferences)| preferences),
                         )
                     })
                     .collect();
@@ -645,20 +652,33 @@ impl Agent {
         Ok(protocol::ResponseData::Acknowledged)
     }
 
-    /// Caches the reported model name against the hardware identity so the name
-    /// survives sleep, reconnects, and agent restarts. Writes only on a change,
-    /// since discovery runs on every pass. A failure here must not fail setup.
-    fn remember_display_name(&mut self, hardware_id: Option<&str>, display_name: Option<&str>) {
-        let (Some(hardware_id), Some(display_name)) = (hardware_id, display_name) else {
+    /// Caches the reported model name and the pre-HID++ USB identity against the
+    /// hardware identity, so both survive sleep, reconnects, and agent restarts.
+    /// The USB identity is what lets a device that is offline at startup still be
+    /// matched to this entry. Writes only on a change, since discovery runs on
+    /// every pass, and a failure here must not fail device setup.
+    fn remember_identity(
+        &mut self,
+        hardware_id: Option<&str>,
+        display_name: Option<&str>,
+        device: &core::ManagedDevice,
+    ) {
+        let Some(hardware_id) = hardware_id else {
             return;
         };
+        let identity = usb_identity(device);
         let preferences = self.settings.device_mut(hardware_id);
-        if preferences.last_display_name.as_deref() == Some(display_name) {
+        let name_matches =
+            display_name.is_none() || preferences.cached_model_name.as_deref() == display_name;
+        if name_matches && preferences.usb_identity.as_ref() == Some(&identity) {
             return;
         }
-        preferences.last_display_name = Some(display_name.to_owned());
+        if let Some(display_name) = display_name {
+            preferences.cached_model_name = Some(display_name.to_owned());
+        }
+        preferences.usb_identity = Some(identity);
         if let Err(error) = self.save_settings() {
-            eprintln!("Could not save the device name for {hardware_id}: {error:#}");
+            eprintln!("Could not save the device identity for {hardware_id}: {error:#}");
         }
     }
 
@@ -778,8 +798,9 @@ fn capture_device_preferences(
         lighting: None,
         nickname: None,
         sort_order: None,
-        // Recorded separately once the mouse reports its name.
-        last_display_name: None,
+        // Both are recorded separately once the mouse reports its name.
+        cached_model_name: None,
+        usb_identity: None,
     }
 }
 
@@ -1207,6 +1228,15 @@ fn sort_by_user_order(devices: &mut [protocol::DeviceSummary]) {
     });
 }
 
+fn usb_identity(device: &core::ManagedDevice) -> store::UsbIdentity {
+    store::UsbIdentity {
+        vendor_id: device.vendor_id,
+        product_id: device.product_id,
+        device_index: device.device_index,
+        serial_number: device.serial_number.clone(),
+    }
+}
+
 fn device_summary(
     device: &core::ManagedDevice,
     availability: protocol::DeviceAvailability,
@@ -1225,7 +1255,7 @@ fn device_summary(
         // instead of showing the receiver's USB product name.
         display_name: display_name
             .map(str::to_owned)
-            .or_else(|| preferences.and_then(|preferences| preferences.last_display_name.clone())),
+            .or_else(|| preferences.and_then(|preferences| preferences.cached_model_name.clone())),
         serial_number: device.serial_number.clone(),
         nickname: preferences.and_then(|p| p.nickname.clone()),
         sort_order: preferences.and_then(|p| p.sort_order),
@@ -1795,7 +1825,8 @@ mod tests {
             lighting: None,
             nickname: None,
             sort_order: None,
-            last_display_name: None,
+            cached_model_name: None,
+            usb_identity: None,
         };
         let saved_host = preferences.host.clone();
         state.settings.configuration_source = Some(protocol::ConfigurationSource::Onboard {

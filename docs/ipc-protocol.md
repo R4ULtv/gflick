@@ -86,8 +86,19 @@ Reading that name requires an open HID++ session, so a sleeping or disconnected 
 cannot report it. The agent caches the last name each `hardware_id` reported and serves
 it when no session is open, which stops a wireless mouse from appearing under its
 receiver's USB product name while it is away. A live name always takes precedence over
-the cached one. The cache is only available after a device has been ready at least once,
-so a mouse that has never been opened still has no `display_name`.
+the cached one.
+
+The cached name stays separate from `nickname` in storage. A nickname is the user's
+override and the cached name is the hardware's own identity, so keeping both lets a
+renamed device still report which model it actually is.
+
+A mouse that is asleep when the agent starts has never been opened, so its `hardware_id`
+is unknown and stored preferences cannot be keyed by it. The agent therefore also records
+the pre-HID++ USB identity — vendor, product, paired device index, and serial number —
+each time a device is ready, and matches an unopened interface against it. That restores
+the name, nickname, and list position immediately at startup. The paired device index is
+part of the match because one receiver serves several mice. A device that has never been
+ready on this host still has no `display_name` until it wakes once.
 
 `nickname` and `sort_order` are additive optional fields holding the host-side name
 and list position described above. They are stored by the agent, never written to the

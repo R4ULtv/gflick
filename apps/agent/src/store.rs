@@ -77,11 +77,31 @@ pub struct DevicePreferences {
     /// Host-side list position; `None` sorts after every ordered device.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<u32>,
-    /// Last model name the mouse reported over HID++. Cached so a sleeping or
-    /// disconnected device keeps its name instead of falling back to the
-    /// receiver's USB product name.
+    /// Model name the mouse reported over HID++, cached so a sleeping or
+    /// disconnected device keeps its identity instead of falling back to the
+    /// receiver's USB product name. This is the hardware's own name and stays
+    /// distinct from `nickname`, so a renamed device can still show what it is.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "last_display_name"
+    )]
+    pub cached_model_name: Option<String>,
+    /// USB identity last seen for this hardware. Lets a device that has never
+    /// been opened in this run be matched to its stored name and nickname.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_display_name: Option<String>,
+    pub usb_identity: Option<UsbIdentity>,
+}
+
+/// Pre-HID++ identity of a device. A receiver's vendor/product pair is shared by
+/// every mouse paired to it, so `device_index` is part of the match.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UsbIdentity {
+    pub vendor_id: u16,
+    pub product_id: u16,
+    pub device_index: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial_number: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -173,6 +193,20 @@ impl SettingsStore {
             .devices
             .entry(hardware_id.to_owned())
             .or_default()
+    }
+
+    /// Finds stored preferences for a device that has not been opened yet, by the
+    /// USB identity recorded the last time it was ready. Returns the matching
+    /// `hardware_id` with them, since callers need it to key later writes.
+    pub fn device_by_usb_identity(
+        &self,
+        identity: &UsbIdentity,
+    ) -> Option<(&str, &DevicePreferences)> {
+        self.document
+            .devices
+            .iter()
+            .find(|(_, preferences)| preferences.usb_identity.as_ref() == Some(identity))
+            .map(|(hardware_id, preferences)| (hardware_id.as_str(), preferences))
     }
 
     pub fn insert_if_missing(&mut self, hardware_id: &str, preferences: DevicePreferences) -> bool {
@@ -279,7 +313,8 @@ mod tests {
             lighting: None,
             nickname: None,
             sort_order: None,
-            last_display_name: None,
+            cached_model_name: None,
+            usb_identity: None,
         }
     }
 
@@ -315,11 +350,11 @@ mod tests {
     }
 
     #[test]
-    fn persists_the_last_reported_display_name() {
+    fn persists_the_cached_model_name() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("settings.json");
         let mut store = SettingsStore::load(path.clone()).unwrap();
-        store.device_mut("046d:unit:1077e69f").last_display_name =
+        store.device_mut("046d:unit:1077e69f").cached_model_name =
             Some("PRO X Superlight 2".to_owned());
         store.save().unwrap();
 
@@ -328,10 +363,70 @@ mod tests {
             loaded
                 .device("046d:unit:1077e69f")
                 .unwrap()
-                .last_display_name
+                .cached_model_name
                 .as_deref(),
             Some("PRO X Superlight 2")
         );
+    }
+
+    /// Files written before the rename must keep their cached name.
+    #[test]
+    fn reads_the_pre_rename_display_name_field() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        fs::write(
+            &path,
+            br#"{"version":1,"devices":{"unit":{"last_display_name":"PRO X Wireless"}}}"#,
+        )
+        .unwrap();
+
+        let store = SettingsStore::load(path).unwrap();
+        assert_eq!(
+            store.device("unit").unwrap().cached_model_name.as_deref(),
+            Some("PRO X Wireless")
+        );
+    }
+
+    #[test]
+    fn finds_a_never_opened_device_by_its_usb_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut store = SettingsStore::load(directory.path().join("settings.json")).unwrap();
+        let identity = UsbIdentity {
+            vendor_id: 0x046d,
+            product_id: 0xc54d,
+            device_index: 1,
+            serial_number: None,
+        };
+        let device = store.device_mut("046d:unit:1077e69f");
+        device.cached_model_name = Some("PRO X Superlight 2".to_owned());
+        device.nickname = Some("Desk mouse".to_owned());
+        device.usb_identity = Some(identity.clone());
+
+        let (hardware_id, preferences) = store.device_by_usb_identity(&identity).unwrap();
+        assert_eq!(hardware_id, "046d:unit:1077e69f");
+        assert_eq!(preferences.nickname.as_deref(), Some("Desk mouse"));
+    }
+
+    /// One receiver serves several mice, so the paired slot must be part of the match.
+    #[test]
+    fn usb_identity_match_distinguishes_devices_behind_one_receiver() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut store = SettingsStore::load(directory.path().join("settings.json")).unwrap();
+        let first = UsbIdentity {
+            vendor_id: 0x046d,
+            product_id: 0xc54d,
+            device_index: 1,
+            serial_number: None,
+        };
+        let second = UsbIdentity {
+            device_index: 2,
+            ..first.clone()
+        };
+        store.device_mut("unit-a").usb_identity = Some(first.clone());
+        store.device_mut("unit-b").usb_identity = Some(second.clone());
+
+        assert_eq!(store.device_by_usb_identity(&first).unwrap().0, "unit-a");
+        assert_eq!(store.device_by_usb_identity(&second).unwrap().0, "unit-b");
     }
 
     /// Settings written before these fields existed must still load.
@@ -349,7 +444,8 @@ mod tests {
         let device = store.device("unit").unwrap();
         assert_eq!(device.nickname, None);
         assert_eq!(device.sort_order, None);
-        assert_eq!(device.last_display_name, None);
+        assert_eq!(device.cached_model_name, None);
+        assert_eq!(device.usb_identity, None);
         assert_eq!(device.host.dpi, Some(800));
     }
 
