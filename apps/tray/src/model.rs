@@ -158,17 +158,7 @@ impl DeviceView {
     }
 
     fn status(&self) -> DeviceStatus {
-        let name = self
-            .summary
-            .display_name
-            .clone()
-            .or_else(|| self.summary.product_name.clone())
-            .unwrap_or_else(|| {
-                format!(
-                    "Mouse {:04x}:{:04x}",
-                    self.summary.vendor_id, self.summary.product_id
-                )
-            });
+        let name = device_label(&self.summary);
         let Some(settings) = self.settings.as_ref() else {
             return DeviceStatus {
                 name,
@@ -188,6 +178,20 @@ impl DeviceView {
             dpi: dpi_label(settings.dpi.as_ref()),
         }
     }
+}
+
+/// User nickname wins over the reported model name, matching the settings UI.
+/// A blank stored value falls through so the entry is never nameless.
+fn device_label(summary: &DeviceSummary) -> String {
+    summary
+        .nickname
+        .as_deref()
+        .map(str::trim)
+        .filter(|nickname| !nickname.is_empty())
+        .map(str::to_owned)
+        .or_else(|| summary.display_name.clone())
+        .or_else(|| summary.product_name.clone())
+        .unwrap_or_else(|| format!("Mouse {:04x}:{:04x}", summary.vendor_id, summary.product_id))
 }
 
 fn battery_label(battery: Option<&BatteryState>) -> String {
@@ -289,6 +293,43 @@ mod tests {
         assert_eq!(tray.title(), "Unavailable");
         assert_eq!(tray.statuses()[0].battery, "Battery: unavailable");
         assert_eq!(tray.statuses()[0].dpi, "DPI: unavailable");
+    }
+
+    #[test]
+    fn nickname_replaces_the_reported_model_name() {
+        let mut state = sample_state();
+        state.device.nickname = Some("Desk mouse".to_owned());
+        let mut tray = TrayState::default();
+        tray.replace(vec![(state.device.clone(), Some(state))]);
+
+        assert_eq!(tray.statuses()[0].name, "Desk mouse");
+        assert!(tray.tooltip().contains("Desk mouse"));
+    }
+
+    #[test]
+    fn blank_nickname_falls_back_to_the_reported_name() {
+        let mut state = sample_state();
+        state.device.nickname = Some("   ".to_owned());
+        let mut tray = TrayState::default();
+        tray.replace(vec![(state.device.clone(), Some(state))]);
+
+        assert_eq!(tray.statuses()[0].name, "PRO X Superlight 2");
+    }
+
+    #[test]
+    fn nickname_is_shown_while_a_mouse_is_unavailable() {
+        let mut state = sample_state();
+        state.device.nickname = Some("Desk mouse".to_owned());
+        let id = state.device.id.clone();
+        let mut tray = TrayState::default();
+        tray.replace(vec![(state.device.clone(), Some(state))]);
+        tray.apply(AgentEvent::DeviceUnavailable {
+            device_id: id,
+            reason_code: Some(gflick_protocol::DeviceUnavailableReason::NotResponding),
+            reason: "wireless link disconnected".to_owned(),
+        });
+
+        assert_eq!(tray.statuses()[0].name, "Desk mouse");
     }
 
     #[test]
