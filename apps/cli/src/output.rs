@@ -196,6 +196,8 @@ mod tests {
             product_name: None,
             display_name: None,
             serial_number: None,
+            nickname: None,
+            sort_order: None,
             connection: DeviceConnection::DirectUsb,
             device_index: 0,
             availability: None,

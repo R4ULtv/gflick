@@ -313,6 +313,8 @@ mod tests {
                 product_name: Some("USB Receiver".to_owned()),
                 display_name: Some("PRO X Superlight 2".to_owned()),
                 serial_number: None,
+                nickname: None,
+                sort_order: None,
                 connection: DeviceConnection::Receiver,
                 device_index: 1,
                 availability: Some(DeviceAvailability::Ready),

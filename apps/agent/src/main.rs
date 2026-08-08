@@ -17,6 +17,9 @@ use clap::Parser;
 use gflick_core as core;
 use gflick_protocol as protocol;
 
+/// Bounds what a client can write into the settings file as a display name.
+const MAX_NICKNAME_CHARS: usize = 64;
+
 #[derive(Debug, Parser)]
 #[command(name = "gflick-agent", about = "Low-overhead GFlick mouse agent")]
 struct Cli {
@@ -193,6 +196,9 @@ impl Agent {
             display_name.as_deref(),
             &capabilities,
             Some(settings.clone()),
+            hardware_id
+                .as_deref()
+                .and_then(|id| self.settings.device(id)),
         )?;
         let active = ActiveMouse {
             mouse,
@@ -227,6 +233,9 @@ impl Agent {
                     device,
                     protocol::DeviceAvailability::Initializing,
                     None,
+                    None,
+                    // Hardware identity is unknown until the mouse is opened, so
+                    // stored metadata arrives with the later device_ready event.
                     None,
                 ),
             });
@@ -440,8 +449,8 @@ impl Agent {
         match command {
             RequestCommand::Ping => Ok(protocol::ResponseData::Pong),
             RequestCommand::Shutdown => Ok(protocol::ResponseData::Acknowledged),
-            RequestCommand::ListDevices => Ok(protocol::ResponseData::Devices {
-                devices: self
+            RequestCommand::ListDevices => {
+                let mut devices: Vec<protocol::DeviceSummary> = self
                     .manager
                     .devices()
                     .iter()
@@ -455,21 +464,31 @@ impl Agent {
                         } else {
                             protocol::DeviceAvailability::Initializing
                         };
+                        let hardware_id = active
+                            .and_then(|mouse| mouse.hardware_id.as_deref())
+                            .or_else(|| {
+                                unavailable.and_then(|device| device.hardware_id.as_deref())
+                            });
                         device_summary(
                             device,
                             availability,
-                            active
-                                .and_then(|mouse| mouse.hardware_id.as_deref())
-                                .or_else(|| {
-                                    unavailable.and_then(|device| device.hardware_id.as_deref())
-                                }),
+                            hardware_id,
                             active.and_then(|mouse| mouse.display_name.as_deref()),
+                            hardware_id.and_then(|id| self.settings.device(id)),
                         )
                     })
-                    .collect(),
-            }),
+                    .collect();
+
+                sort_by_user_order(&mut devices);
+                Ok(protocol::ResponseData::Devices { devices })
+            }
             RequestCommand::GetDevice { device_id } => self.device_response(&device_id),
             RequestCommand::Subscribe => Ok(protocol::ResponseData::Subscribed),
+            RequestCommand::SetDeviceNickname {
+                device_id,
+                nickname,
+            } => self.set_nickname(&device_id, nickname),
+            RequestCommand::ReorderDevices { hardware_ids } => self.reorder(&hardware_ids),
             RequestCommand::SetDpi { device_id, dpi } => {
                 self.mouse(&device_id)?.set_dpi(dpi)?;
                 self.device_response(&device_id)
@@ -581,6 +600,67 @@ impl Agent {
         })
     }
 
+    /// Stores a host-side display name. Nothing is sent to the device, so this is
+    /// allowed while the mouse is still initializing.
+    fn set_nickname(
+        &mut self,
+        device_id: &str,
+        nickname: Option<String>,
+    ) -> Result<protocol::ResponseData> {
+        let hardware_id = self
+            .hardware_id(device_id)
+            .context("the device has no persistent HID++ hardware identity yet")?;
+
+        let nickname = match nickname {
+            Some(name) => {
+                let trimmed = name.trim();
+                if trimmed.is_empty() {
+                    None
+                } else if trimmed.chars().count() > MAX_NICKNAME_CHARS {
+                    bail!("nickname must be at most {MAX_NICKNAME_CHARS} characters");
+                } else {
+                    Some(trimmed.to_owned())
+                }
+            }
+            None => None,
+        };
+
+        self.settings.device_mut(&hardware_id).nickname = nickname;
+        self.save_settings()?;
+        Ok(protocol::ResponseData::Acknowledged)
+    }
+
+    /// Assigns list positions by hardware identity. Unlisted devices keep `None`
+    /// and sort after the ordered ones.
+    fn reorder(&mut self, hardware_ids: &[String]) -> Result<protocol::ResponseData> {
+        for (position, hardware_id) in hardware_ids.iter().enumerate() {
+            let order = u32::try_from(position).context("device order is out of range")?;
+            self.settings.device_mut(hardware_id).sort_order = Some(order);
+        }
+        self.save_settings()?;
+        Ok(protocol::ResponseData::Acknowledged)
+    }
+
+    fn hardware_id(&self, device_id: &str) -> Option<String> {
+        self.active
+            .get(device_id)
+            .and_then(|mouse| mouse.hardware_id.clone())
+            .or_else(|| {
+                self.unavailable
+                    .get(device_id)
+                    .and_then(|device| device.hardware_id.clone())
+            })
+    }
+
+    fn save_settings(&self) -> Result<()> {
+        self.settings.save().with_context(|| {
+            format!(
+                "failed to save preferences to `{}`",
+                self.settings.path().display()
+            )
+        })
+    }
+
     fn mouse(&self, id: &str) -> Result<&core::MouseDevice> {
         self.active
             .get(id)
@@ -605,6 +685,10 @@ impl Agent {
                 active.display_name.as_deref(),
                 &active.capabilities,
                 None,
+                active
+                    .hardware_id
+                    .as_deref()
+                    .and_then(|id| self.settings.device(id)),
             )?),
         })
     }
@@ -671,6 +755,8 @@ fn capture_device_preferences(
         control,
         host,
         lighting: None,
+        nickname: None,
+        sort_order: None,
     }
 }
 
@@ -733,7 +819,9 @@ fn update_preferences(
         | protocol::RequestCommand::Shutdown
         | protocol::RequestCommand::ListDevices
         | protocol::RequestCommand::GetDevice { .. }
-        | protocol::RequestCommand::Subscribe => {}
+        | protocol::RequestCommand::Subscribe
+        | protocol::RequestCommand::SetDeviceNickname { .. }
+        | protocol::RequestCommand::ReorderDevices { .. } => {}
     }
 }
 
@@ -1011,7 +1099,11 @@ fn command_device_id(command: &protocol::RequestCommand) -> Option<&str> {
         RequestCommand::Ping
         | RequestCommand::Shutdown
         | RequestCommand::ListDevices
-        | RequestCommand::Subscribe => None,
+        | RequestCommand::Subscribe
+        // Host-side metadata: deliberately exempt from the device-ready guard so a
+        // device can be renamed while it is still initializing.
+        | RequestCommand::SetDeviceNickname { .. }
+        | RequestCommand::ReorderDevices { .. } => None,
         RequestCommand::GetDevice { device_id }
         | RequestCommand::SetDpi { device_id, .. }
         | RequestCommand::SetPollingRate { device_id, .. }
@@ -1034,6 +1126,9 @@ fn command_changes_settings(command: &protocol::RequestCommand) -> bool {
             | protocol::RequestCommand::ListDevices
             | protocol::RequestCommand::GetDevice { .. }
             | protocol::RequestCommand::Subscribe
+            // These persist host-side metadata themselves and return no snapshot.
+            | protocol::RequestCommand::SetDeviceNickname { .. }
+            | protocol::RequestCommand::ReorderDevices { .. }
     )
 }
 
@@ -1062,6 +1157,7 @@ fn device_state(
     display_name: Option<&str>,
     capabilities: &core::DeviceCapabilities,
     settings: Option<core::SettingsSnapshot>,
+    preferences: Option<&store::DevicePreferences>,
 ) -> Result<protocol::DeviceState> {
     let settings = settings.map_or_else(|| mouse.settings(), Ok)?;
     Ok(protocol::DeviceState {
@@ -1070,10 +1166,22 @@ fn device_state(
             protocol::DeviceAvailability::Ready,
             hardware_id,
             display_name,
+            preferences,
         ),
         capabilities: capabilities_state(capabilities.clone()),
         settings: settings_state(settings),
     })
+}
+
+/// Orders devices by their stored position. Devices without one keep discovery
+/// order behind the ordered ones, which is why this uses a stable sort.
+fn sort_by_user_order(devices: &mut [protocol::DeviceSummary]) {
+    devices.sort_by(|a, b| match (a.sort_order, b.sort_order) {
+        (Some(left), Some(right)) => left.cmp(&right),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    });
 }
 
 fn device_summary(
@@ -1081,6 +1189,7 @@ fn device_summary(
     availability: protocol::DeviceAvailability,
     hardware_id: Option<&str>,
     display_name: Option<&str>,
+    preferences: Option<&store::DevicePreferences>,
 ) -> protocol::DeviceSummary {
     let ready = matches!(availability, protocol::DeviceAvailability::Ready);
     protocol::DeviceSummary {
@@ -1091,6 +1200,8 @@ fn device_summary(
         product_name: device.product_name.clone(),
         display_name: display_name.map(str::to_owned),
         serial_number: device.serial_number.clone(),
+        nickname: preferences.and_then(|p| p.nickname.clone()),
+        sort_order: preferences.and_then(|p| p.sort_order),
         connection: match device.connection {
             core::DeviceConnection::DirectUsb => protocol::DeviceConnection::DirectUsb,
             core::DeviceConnection::Receiver => protocol::DeviceConnection::Receiver,
@@ -1503,6 +1614,41 @@ mod tests {
         assert!(cli.background_worker);
     }
 
+    fn ordered_summary(id: &str, sort_order: Option<u32>) -> protocol::DeviceSummary {
+        protocol::DeviceSummary {
+            id: id.to_owned(),
+            hardware_id: Some(id.to_owned()),
+            vendor_id: 0x046d,
+            product_id: 0xc54d,
+            product_name: None,
+            display_name: None,
+            serial_number: None,
+            nickname: None,
+            sort_order,
+            connection: protocol::DeviceConnection::Receiver,
+            device_index: 1,
+            availability: Some(protocol::DeviceAvailability::Ready),
+            ready: true,
+        }
+    }
+
+    #[test]
+    fn user_order_precedes_unordered_devices_in_discovery_order() {
+        let mut devices = vec![
+            ordered_summary("unordered-first", None),
+            ordered_summary("second", Some(1)),
+            ordered_summary("unordered-second", None),
+            ordered_summary("first", Some(0)),
+        ];
+        sort_by_user_order(&mut devices);
+
+        let ids: Vec<&str> = devices.iter().map(|device| device.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["first", "second", "unordered-first", "unordered-second"]
+        );
+    }
+
     fn sample_device_state() -> protocol::DeviceState {
         protocol::DeviceState {
             device: protocol::DeviceSummary {
@@ -1513,6 +1659,8 @@ mod tests {
                 product_name: Some("USB Receiver".to_owned()),
                 display_name: Some("PRO X Superlight 2".to_owned()),
                 serial_number: None,
+                nickname: None,
+                sort_order: None,
                 connection: protocol::DeviceConnection::Receiver,
                 device_index: 1,
                 availability: Some(protocol::DeviceAvailability::Ready),
@@ -1618,6 +1766,8 @@ mod tests {
             control: Some(store::ControlPreference::Host),
             host: capture_protocol_host_preferences(&state),
             lighting: None,
+            nickname: None,
+            sort_order: None,
         };
         let saved_host = preferences.host.clone();
         state.settings.configuration_source = Some(protocol::ConfigurationSource::Onboard {

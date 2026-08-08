@@ -254,6 +254,8 @@ mod tests {
             product_name: Some("Mouse".to_owned()),
             display_name: None,
             serial_number: None,
+            nickname: None,
+            sort_order: None,
             connection: DeviceConnection::DirectUsb,
             device_index: 0,
             availability: None,

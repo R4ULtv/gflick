@@ -106,6 +106,8 @@ mod tests {
             product_name: Some("Receiver".to_owned()),
             display_name: None,
             serial_number: None,
+            nickname: None,
+            sort_order: None,
             connection: DeviceConnection::Receiver,
             device_index: 1,
             availability: None,

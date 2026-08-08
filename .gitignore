@@ -2,3 +2,4 @@
 /benchmark-results/
 *.log
 /.claude/
+.agents/

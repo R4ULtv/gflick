@@ -68,6 +68,19 @@ pub enum RequestCommand {
         device_id: String,
         profile: u16,
     },
+    /// Sets or clears a host-side display name. This never touches the device.
+    SetDeviceNickname {
+        device_id: String,
+        /// `None` clears the nickname and restores the reported name.
+        nickname: Option<String>,
+    },
+    /// Reorders the device list. The order is host-side and keyed by hardware
+    /// identity, so it survives reconnects and USB-path changes.
+    ReorderDevices {
+        /// Hardware IDs in the desired order. Devices left out keep reported order
+        /// and sort after the listed ones.
+        hardware_ids: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -267,6 +280,13 @@ pub struct DeviceSummary {
     #[serde(default)]
     pub display_name: Option<String>,
     pub serial_number: Option<String>,
+    /// User-assigned display name. Host-side only: it is stored with the agent's
+    /// preferences and never written to the device.
+    #[serde(default)]
+    pub nickname: Option<String>,
+    /// User-assigned list position. `None` sorts after every ordered device.
+    #[serde(default)]
+    pub sort_order: Option<u32>,
     pub connection: DeviceConnection,
     pub device_index: u8,
     /// Structured lifecycle state for new clients. `ready` remains available for
@@ -393,6 +413,57 @@ mod tests {
             request
         );
         assert!(json.contains("\"command\":\"set_dpi\""));
+    }
+
+    #[test]
+    fn host_metadata_requests_round_trip() {
+        let rename = ClientRequest {
+            id: 1,
+            protocol_version: PROTOCOL_VERSION,
+            command: RequestCommand::SetDeviceNickname {
+                device_id: "mouse-1".to_owned(),
+                nickname: Some("Desk left".to_owned()),
+            },
+        };
+        let json = serde_json::to_string(&rename).unwrap();
+        assert!(json.contains("\"command\":\"set_device_nickname\""));
+        assert_eq!(
+            serde_json::from_str::<ClientRequest>(&json).unwrap(),
+            rename
+        );
+
+        let reorder = ClientRequest {
+            id: 2,
+            protocol_version: PROTOCOL_VERSION,
+            command: RequestCommand::ReorderDevices {
+                hardware_ids: vec!["a".to_owned(), "b".to_owned()],
+            },
+        };
+        let json = serde_json::to_string(&reorder).unwrap();
+        assert!(json.contains("\"command\":\"reorder_devices\""));
+        assert_eq!(
+            serde_json::from_str::<ClientRequest>(&json).unwrap(),
+            reorder
+        );
+    }
+
+    /// The host-metadata fields are additive, so a payload from an agent that
+    /// predates them must still deserialize.
+    #[test]
+    fn device_summary_defaults_host_metadata_when_absent() {
+        let json = r#"{
+            "id": "mouse-1",
+            "vendor_id": 1133,
+            "product_id": 50253,
+            "product_name": "USB Receiver",
+            "serial_number": null,
+            "connection": "receiver",
+            "device_index": 1,
+            "ready": true
+        }"#;
+        let summary = serde_json::from_str::<DeviceSummary>(json).unwrap();
+        assert_eq!(summary.nickname, None);
+        assert_eq!(summary.sort_order, None);
     }
 
     #[test]

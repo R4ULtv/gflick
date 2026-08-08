@@ -71,6 +71,12 @@ pub struct DevicePreferences {
     pub host: HostPreferences,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lighting: Option<LightingPreference>,
+    /// Host-side display name. Never written to the device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nickname: Option<String>,
+    /// Host-side list position; `None` sorts after every ordered device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_order: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -266,6 +272,8 @@ mod tests {
                 }),
             },
             lighting: None,
+            nickname: None,
+            sort_order: None,
         }
     }
 
@@ -282,6 +290,40 @@ mod tests {
             loaded.device("046d:unit:1077e69f"),
             Some(&sample_preferences())
         );
+    }
+
+    #[test]
+    fn persists_host_side_nickname_and_order() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        let mut store = SettingsStore::load(path.clone()).unwrap();
+        let device = store.device_mut("046d:unit:1077e69f");
+        device.nickname = Some("Desk left".to_owned());
+        device.sort_order = Some(2);
+        store.save().unwrap();
+
+        let loaded = SettingsStore::load(path).unwrap();
+        let device = loaded.device("046d:unit:1077e69f").unwrap();
+        assert_eq!(device.nickname.as_deref(), Some("Desk left"));
+        assert_eq!(device.sort_order, Some(2));
+    }
+
+    /// Settings written before these fields existed must still load.
+    #[test]
+    fn loads_preferences_without_host_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        fs::write(
+            &path,
+            br#"{"version":1,"devices":{"unit":{"host":{"dpi":800}}}}"#,
+        )
+        .unwrap();
+
+        let store = SettingsStore::load(path).unwrap();
+        let device = store.device("unit").unwrap();
+        assert_eq!(device.nickname, None);
+        assert_eq!(device.sort_order, None);
+        assert_eq!(device.host.dpi, Some(800));
     }
 
     #[test]

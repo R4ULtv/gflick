@@ -48,6 +48,22 @@ Successful setting commands return a fresh complete device snapshot. The agent a
 broadcasts a `settings_changed` event so other open clients can refresh immediately.
 All validation and HID++ read-back checks remain inside `gflick-core`.
 
+Two further commands manage host-side presentation only:
+
+- `set_device_nickname` stores a user-assigned display name, or clears it when
+  `nickname` is null or blank. Names are trimmed and limited to 64 characters.
+- `reorder_devices` stores the device list order as a sequence of `hardware_id`
+  values.
+
+Neither sends anything to the mouse. They therefore return `acknowledged` rather
+than a device snapshot, emit no `settings_changed` event, and are exempt from the
+device-ready guard so a device can be renamed while it is still initializing.
+Because both persist under `hardware_id`, they are unavailable until the agent has
+opened the device and learned its hardware identity.
+
+`list_devices` returns devices in stored order: those with a `sort_order` first, in
+ascending order, followed by the rest in discovery order.
+
 Each device summary contains two different identities:
 
 - `id` is the current session's routing key and is used in IPC commands. When USB does
@@ -65,6 +81,12 @@ until the agent can query it.
 by the mouse through HID++. Some firmware does not expose it, particularly when connected
 through a receiver. Clients must then fall back to the USB `product_name` and must not
 guess a model from a receiver product ID.
+
+`nickname` and `sort_order` are additive optional fields holding the host-side name
+and list position described above. They are stored by the agent, never written to the
+device, and are absent until the mouse has a `hardware_id`. Clients that show a
+nickname should keep the reported model name visible somewhere, so the underlying
+hardware stays identifiable.
 
 `DeviceSummary` also carries an additive `availability` object while retaining the
 original `ready` boolean for protocol-v1 clients. Its states are:
