@@ -58,8 +58,10 @@ Two further commands manage host-side presentation only:
 Neither sends anything to the mouse. They therefore return `acknowledged` rather
 than a device snapshot, emit no `settings_changed` event, and are exempt from the
 device-ready guard so a device can be renamed while it is still initializing.
-Because both persist under `hardware_id`, they are unavailable until the agent has
-opened the device and learned its hardware identity.
+Because both persist under `hardware_id`, a device that has never been learned on
+this host cannot be renamed while offline. A previously learned offline device may
+be renamed when its USB identity resolves uniquely to its stored hardware identity;
+unknown or ambiguous USB matches remain unavailable for renaming.
 
 `list_devices` returns devices in stored order: those with a `sort_order` first, in
 ascending order, followed by the rest in discovery order.
@@ -69,13 +71,14 @@ Each device summary contains two different identities:
 - `id` is the current session's routing key and is used in IPC commands. When USB does
   not expose a serial number it can contain a hash of the HID path.
 - `hardware_id` is an optional opaque physical-device key derived from the HID++ unit
-  ID. It becomes available after `device_ready` and is stable across ports, receiver
+  ID. It is normally learned at `device_ready` and is stable across ports, receiver
   paths, and wired/wireless transport. Persisted preferences must use this value and
   must never fall back to the routing ID.
 
 `hardware_id` is additive and optional in protocol v1 so older recorded messages without
-it still deserialize. A connected but not-yet-ready mouse reports no hardware identity
-until the agent can query it.
+it still deserialize. A connected but not-yet-ready mouse reports its stored hardware
+identity when a unique prior USB identity is known; otherwise it remains absent until the
+agent can query the live device.
 
 `display_name` is a separate additive optional field containing the model name reported
 by the mouse through HID++. Some firmware does not expose it, particularly when connected
@@ -148,7 +151,9 @@ preference is durable.
 A connection that sends `subscribe` becomes an event-only stream after receiving its
 `subscribed` response. The event types are:
 
-- `device_connected`: HID discovery found an interface; it may not yet be awake
+- `device_connected`: HID discovery found an interface; it may not yet be awake. When a
+  unique prior USB identity is known, its stored hardware ID, nickname, sort position,
+  and cached model name are already present in the summary.
 - `device_ready`: the agent opened the mouse and read its initial state
 - `device_unavailable`: an initial open failed, an asynchronous HID++ notification
   reported that a wireless link was lost while its USB receiver remained present, or

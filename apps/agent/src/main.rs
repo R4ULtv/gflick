@@ -79,6 +79,14 @@ struct UnavailableDevice {
     hardware_id: Option<String>,
 }
 
+/// Stored metadata resolved for a device that may not have a live HID++
+/// session. Both fields use the persistent HID++ hardware identity, never the
+/// transient routing ID.
+struct ResolvedDeviceMetadata<'a> {
+    hardware_id: Option<String>,
+    preferences: Option<&'a store::DevicePreferences>,
+}
+
 impl UnavailableDevice {
     fn availability(&self) -> protocol::DeviceAvailability {
         protocol::DeviceAvailability::Unavailable {
@@ -232,15 +240,14 @@ impl Agent {
 
         for device in &changes.connected {
             println!("Connected: {}", device_label(device));
+            let metadata = self.resolve_device_metadata(device, None);
             events.push(protocol::AgentEvent::DeviceConnected {
                 device: device_summary(
                     device,
                     protocol::DeviceAvailability::Initializing,
+                    metadata.hardware_id.as_deref(),
                     None,
-                    None,
-                    // Hardware identity is unknown until the mouse is opened, so
-                    // stored metadata arrives with the later device_ready event.
-                    None,
+                    metadata.preferences,
                 ),
             });
         }
@@ -282,6 +289,14 @@ impl Agent {
                 continue;
             }
 
+            let session_hardware_id = self
+                .unavailable
+                .get(&device.id)
+                .and_then(|unavailable| unavailable.hardware_id.as_deref());
+            let resolved_hardware_id = self
+                .resolve_device_metadata(&device, session_hardware_id)
+                .hardware_id;
+
             match self.manager.open(&device.id) {
                 Ok(mouse) => match self.prepare_mouse(&device, mouse) {
                     Ok((active, state)) => {
@@ -296,7 +311,7 @@ impl Agent {
                             &device.id,
                             protocol::DeviceUnavailableReason::CommunicationError,
                             format!("could not read mouse state: {error:#}"),
-                            None,
+                            resolved_hardware_id,
                             &mut events,
                         );
                     }
@@ -308,7 +323,7 @@ impl Agent {
                         format!(
                             "mouse is present but not responding; it may be asleep or switched off: {error:#}"
                         ),
-                        None,
+                        resolved_hardware_id,
                         &mut events,
                     );
                 }
@@ -473,21 +488,13 @@ impl Agent {
                             .or_else(|| {
                                 unavailable.and_then(|device| device.hardware_id.as_deref())
                             });
-                        // A mouse that was asleep when the agent started has no
-                        // session to report its identity, so fall back to the USB
-                        // identity recorded the last time it was ready.
-                        let stored = match session_hardware_id {
-                            Some(id) => self.settings.device(id).map(|p| (id, p)),
-                            None => self
-                                .settings
-                                .resolve_device_by_usb_identity(&usb_identity(device)),
-                        };
+                        let metadata = self.resolve_device_metadata(device, session_hardware_id);
                         device_summary(
                             device,
                             availability,
-                            session_hardware_id.or(stored.map(|(id, _)| id)),
+                            metadata.hardware_id.as_deref(),
                             active.and_then(|mouse| mouse.display_name.as_deref()),
-                            stored.map(|(_, preferences)| preferences),
+                            metadata.preferences,
                         )
                     })
                     .collect();
@@ -624,21 +631,7 @@ impl Agent {
             .hardware_id(device_id)
             .context("the device has no persistent HID++ hardware identity yet")?;
 
-        let nickname = match nickname {
-            Some(name) => {
-                let trimmed = name.trim();
-                if trimmed.is_empty() {
-                    None
-                } else if trimmed.chars().count() > MAX_NICKNAME_CHARS {
-                    bail!("nickname must be at most {MAX_NICKNAME_CHARS} characters");
-                } else {
-                    Some(trimmed.to_owned())
-                }
-            }
-            None => None,
-        };
-
-        self.settings.device_mut(&hardware_id).nickname = nickname;
+        update_nickname(&mut self.settings, &hardware_id, nickname)?;
         self.save_settings()?;
         Ok(protocol::ResponseData::Acknowledged)
     }
@@ -685,14 +678,29 @@ impl Agent {
     }
 
     fn hardware_id(&self, device_id: &str) -> Option<String> {
-        self.active
+        let device = self.manager.device(device_id)?;
+        let session_hardware_id = self
+            .active
             .get(device_id)
-            .and_then(|mouse| mouse.hardware_id.clone())
+            .and_then(|mouse| mouse.hardware_id.as_deref())
             .or_else(|| {
                 self.unavailable
                     .get(device_id)
-                    .and_then(|device| device.hardware_id.clone())
-            })
+                    .and_then(|device| device.hardware_id.as_deref())
+            });
+        self.resolve_device_metadata(device, session_hardware_id)
+            .hardware_id
+    }
+
+    /// Resolves presentation metadata for a discovered device. A live session
+    /// identity is authoritative; the canonical USB match is only a fallback
+    /// for devices that have not yet been opened in this agent run.
+    fn resolve_device_metadata(
+        &self,
+        device: &core::ManagedDevice,
+        session_hardware_id: Option<&str>,
+    ) -> ResolvedDeviceMetadata<'_> {
+        resolve_device_metadata(&self.settings, &usb_identity(device), session_hardware_id)
     }
 
     fn save_settings(&self) -> Result<()> {
@@ -776,6 +784,55 @@ fn record_unavailable(
         reason_code: Some(reason),
         reason: detail,
     })
+}
+
+/// Applies the one identity-resolution policy used by device summaries,
+/// lifecycle records, and offline host-side commands. A session identity is
+/// authoritative even when it has no stored preferences; otherwise the store's
+/// canonical USB resolver must return exactly one prior device.
+fn resolve_device_metadata<'a>(
+    settings: &'a store::SettingsStore,
+    usb_identity: &store::UsbIdentity,
+    session_hardware_id: Option<&str>,
+) -> ResolvedDeviceMetadata<'a> {
+    match session_hardware_id {
+        Some(hardware_id) => ResolvedDeviceMetadata {
+            hardware_id: Some(hardware_id.to_owned()),
+            preferences: settings.device(hardware_id),
+        },
+        None => match settings.resolve_device_by_usb_identity(usb_identity) {
+            Some((hardware_id, preferences)) => ResolvedDeviceMetadata {
+                hardware_id: Some(hardware_id.to_owned()),
+                preferences: Some(preferences),
+            },
+            None => ResolvedDeviceMetadata {
+                hardware_id: None,
+                preferences: None,
+            },
+        },
+    }
+}
+
+fn update_nickname(
+    settings: &mut store::SettingsStore,
+    hardware_id: &str,
+    nickname: Option<String>,
+) -> Result<()> {
+    let nickname = match nickname {
+        Some(name) => {
+            let trimmed = name.trim();
+            if trimmed.is_empty() {
+                None
+            } else if trimmed.chars().count() > MAX_NICKNAME_CHARS {
+                bail!("nickname must be at most {MAX_NICKNAME_CHARS} characters");
+            } else {
+                Some(trimmed.to_owned())
+            }
+        }
+        None => None,
+    };
+    settings.device_mut(hardware_id).nickname = nickname;
+    Ok(())
 }
 
 fn capture_device_preferences(
@@ -1661,6 +1718,28 @@ fn install_shutdown_handler(shutdown: &Arc<AtomicBool>) -> Result<()> {
 mod tests {
     use super::*;
 
+    fn metadata_store() -> (tempfile::TempDir, store::SettingsStore) {
+        let directory = tempfile::tempdir().unwrap();
+        let settings = store::SettingsStore::load(directory.path().join("settings.json")).unwrap();
+        (directory, settings)
+    }
+
+    fn test_usb_identity(serial_number: Option<&str>) -> store::UsbIdentity {
+        store::UsbIdentity::new(0x046d, 0xc54d, 1, serial_number.map(str::to_owned))
+    }
+
+    fn remember_test_device(
+        settings: &mut store::SettingsStore,
+        hardware_id: &str,
+        identity: store::UsbIdentity,
+    ) {
+        let preferences = settings.device_mut(hardware_id);
+        preferences.usb_identity = Some(identity);
+        preferences.nickname = Some("Desk mouse".to_owned());
+        preferences.sort_order = Some(2);
+        preferences.cached_model_name = Some("PRO X Superlight 2".to_owned());
+    }
+
     #[test]
     fn rejects_removed_startup_commands() {
         assert!(Cli::try_parse_from(["gflick-agent", "startup", "install"]).is_err());
@@ -1892,5 +1971,92 @@ mod tests {
             Some("hardware-1".to_owned()),
         );
         assert!(after_recovery.is_some());
+    }
+
+    #[test]
+    fn unique_offline_usb_identity_restores_all_stored_metadata() {
+        let (_directory, mut settings) = metadata_store();
+        let identity = test_usb_identity(Some("receiver-1"));
+        remember_test_device(&mut settings, "hardware-1", identity.clone());
+
+        let metadata = resolve_device_metadata(&settings, &identity, None);
+
+        assert_eq!(metadata.hardware_id.as_deref(), Some("hardware-1"));
+        let preferences = metadata.preferences.unwrap();
+        assert_eq!(preferences.nickname.as_deref(), Some("Desk mouse"));
+        assert_eq!(preferences.sort_order, Some(2));
+        assert_eq!(
+            preferences.cached_model_name.as_deref(),
+            Some("PRO X Superlight 2")
+        );
+    }
+
+    #[test]
+    fn unknown_or_ambiguous_offline_usb_identity_has_no_metadata() {
+        let (_directory, mut settings) = metadata_store();
+        let identity = test_usb_identity(Some("receiver-1"));
+        let unknown = resolve_device_metadata(&settings, &identity, None);
+        assert_eq!(unknown.hardware_id, None);
+        assert_eq!(unknown.preferences, None);
+
+        remember_test_device(&mut settings, "hardware-1", identity.clone());
+        remember_test_device(&mut settings, "hardware-2", identity.clone());
+        let ambiguous = resolve_device_metadata(&settings, &identity, None);
+        assert_eq!(ambiguous.hardware_id, None);
+        assert_eq!(ambiguous.preferences, None);
+    }
+
+    #[test]
+    fn live_hardware_identity_wins_over_stored_usb_metadata() {
+        let (_directory, mut settings) = metadata_store();
+        let identity = test_usb_identity(Some("receiver-1"));
+        remember_test_device(&mut settings, "stored-hardware", identity.clone());
+
+        let metadata = resolve_device_metadata(&settings, &identity, Some("live-hardware"));
+
+        assert_eq!(metadata.hardware_id.as_deref(), Some("live-hardware"));
+        assert_eq!(metadata.preferences, None);
+    }
+
+    #[test]
+    fn offline_learned_nickname_uses_stored_hardware_identity() {
+        let (_directory, mut settings) = metadata_store();
+        let identity = test_usb_identity(Some("receiver-1"));
+        remember_test_device(&mut settings, "hardware-1", identity.clone());
+        let hardware_id = resolve_device_metadata(&settings, &identity, None)
+            .hardware_id
+            .unwrap();
+
+        update_nickname(
+            &mut settings,
+            &hardware_id,
+            Some("Offline desk mouse".to_owned()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            settings.device("hardware-1").unwrap().nickname.as_deref(),
+            Some("Offline desk mouse")
+        );
+        assert_eq!(settings.device("transient-session-id"), None);
+    }
+
+    #[test]
+    fn unknown_or_ambiguous_offline_nickname_has_no_hardware_identity() {
+        let (_directory, mut settings) = metadata_store();
+        let identity = test_usb_identity(Some("receiver-1"));
+
+        assert_eq!(
+            resolve_device_metadata(&settings, &identity, None).hardware_id,
+            None
+        );
+
+        remember_test_device(&mut settings, "hardware-1", identity.clone());
+        remember_test_device(&mut settings, "hardware-2", identity.clone());
+        assert_eq!(
+            resolve_device_metadata(&settings, &identity, None).hardware_id,
+            None
+        );
+        assert_eq!(settings.device("transient-session-id"), None);
     }
 }

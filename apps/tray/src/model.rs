@@ -333,6 +333,40 @@ mod tests {
     }
 
     #[test]
+    fn queued_connected_event_preserves_restored_offline_metadata() {
+        let mut state = sample_state();
+        state.device.nickname = Some("Desk mouse".to_owned());
+        state.device.availability = Some(DeviceAvailability::Unavailable {
+            reason: gflick_protocol::DeviceUnavailableReason::NotResponding,
+            detail: "mouse is asleep".to_owned(),
+        });
+        state.device.ready = false;
+        let snapshot = state.device.clone();
+        let mut connected = snapshot.clone();
+        connected.availability = Some(DeviceAvailability::Initializing);
+
+        let mut tray = TrayState::default();
+        tray.replace(vec![(snapshot, None)]);
+        tray.apply(AgentEvent::DeviceConnected { device: connected });
+        tray.apply(AgentEvent::DeviceUnavailable {
+            device_id: state.device.id.clone(),
+            reason_code: Some(gflick_protocol::DeviceUnavailableReason::NotResponding),
+            reason: "mouse is asleep".to_owned(),
+        });
+
+        assert_eq!(tray.statuses()[0].name, "Desk mouse");
+        assert_eq!(
+            tray.devices[&state.device.id]
+                .summary
+                .display_name
+                .as_deref(),
+            Some("PRO X Superlight 2")
+        );
+        assert_eq!(tray.statuses()[0].battery, "Battery: unavailable");
+        assert_eq!(tray.statuses()[0].dpi, "DPI: unavailable");
+    }
+
+    #[test]
     fn disconnected_mouse_is_removed_immediately() {
         let state = sample_state();
         let id = state.device.id.clone();
