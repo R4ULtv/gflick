@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -241,6 +241,35 @@ impl SettingsStore {
             .or_default()
     }
 
+    /// Replaces the complete user-defined device order. Every requested hardware
+    /// ID must already have stored preferences, and omitted devices become
+    /// unordered.
+    pub fn replace_device_order(&mut self, hardware_ids: &[String]) -> Result<()> {
+        let mut seen = BTreeSet::new();
+        for (position, hardware_id) in hardware_ids.iter().enumerate() {
+            if !seen.insert(hardware_id) {
+                bail!("duplicate hardware ID in reorder request");
+            }
+            if !self.document.devices.contains_key(hardware_id) {
+                bail!("unknown hardware ID in reorder request");
+            }
+            u32::try_from(position).context("device order is out of range")?;
+        }
+
+        for preferences in self.document.devices.values_mut() {
+            preferences.sort_order = None;
+        }
+        for (position, hardware_id) in hardware_ids.iter().enumerate() {
+            let order = u32::try_from(position).context("device order is out of range")?;
+            self.document
+                .devices
+                .get_mut(hardware_id)
+                .expect("reorder validation confirmed the hardware ID exists")
+                .sort_order = Some(order);
+        }
+        Ok(())
+    }
+
     /// Resolves stored preferences for a device that has not been opened yet by
     /// the USB identity recorded the last time it was ready. Exact identities win.
     /// A missing serial may fall back to the same USB slot only when that match is
@@ -435,6 +464,94 @@ mod tests {
         let device = loaded.device("046d:unit:1077e69f").unwrap();
         assert_eq!(device.nickname.as_deref(), Some("Desk left"));
         assert_eq!(device.sort_order, Some(2));
+    }
+
+    #[test]
+    fn replaces_device_order_and_persists_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        let mut store = SettingsStore::load(path.clone()).unwrap();
+        store.device_mut("hardware-a");
+        store.device_mut("hardware-b");
+
+        store
+            .replace_device_order(&["hardware-a".to_owned(), "hardware-b".to_owned()])
+            .unwrap();
+        assert_eq!(store.device("hardware-a").unwrap().sort_order, Some(0));
+        assert_eq!(store.device("hardware-b").unwrap().sort_order, Some(1));
+        store.save().unwrap();
+
+        let loaded = SettingsStore::load(path).unwrap();
+        assert_eq!(loaded.device("hardware-a").unwrap().sort_order, Some(0));
+        assert_eq!(loaded.device("hardware-b").unwrap().sort_order, Some(1));
+    }
+
+    #[test]
+    fn replacement_order_clears_omitted_devices() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        let mut store = SettingsStore::load(path).unwrap();
+        store.device_mut("hardware-a");
+        store.device_mut("hardware-b");
+
+        store
+            .replace_device_order(&["hardware-a".to_owned(), "hardware-b".to_owned()])
+            .unwrap();
+        store
+            .replace_device_order(&["hardware-b".to_owned()])
+            .unwrap();
+
+        assert_eq!(store.device("hardware-a").unwrap().sort_order, None);
+        assert_eq!(store.device("hardware-b").unwrap().sort_order, Some(0));
+    }
+
+    #[test]
+    fn empty_replacement_order_clears_all_devices() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        let mut store = SettingsStore::load(path).unwrap();
+        store.device_mut("hardware-a").sort_order = Some(0);
+        store.device_mut("hardware-b").sort_order = Some(1);
+
+        store.replace_device_order(&[]).unwrap();
+
+        assert_eq!(store.device("hardware-a").unwrap().sort_order, None);
+        assert_eq!(store.device("hardware-b").unwrap().sort_order, None);
+    }
+
+    #[test]
+    fn duplicate_replacement_hardware_id_leaves_preferences_unchanged() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        let mut store = SettingsStore::load(path).unwrap();
+        store.device_mut("hardware-a").sort_order = Some(1);
+        store.device_mut("hardware-b").sort_order = Some(0);
+
+        let error = store
+            .replace_device_order(&["hardware-a".to_owned(), "hardware-a".to_owned()])
+            .unwrap_err();
+
+        assert!(error.to_string().contains("duplicate"));
+        assert_eq!(store.device("hardware-a").unwrap().sort_order, Some(1));
+        assert_eq!(store.device("hardware-b").unwrap().sort_order, Some(0));
+    }
+
+    #[test]
+    fn unknown_replacement_hardware_id_creates_no_record_or_mutation() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        let mut store = SettingsStore::load(path).unwrap();
+        store.device_mut("hardware-a").sort_order = Some(0);
+        store.device_mut("hardware-b").sort_order = Some(1);
+
+        let error = store
+            .replace_device_order(&["hardware-a".to_owned(), "missing".to_owned()])
+            .unwrap_err();
+
+        assert!(error.to_string().contains("unknown hardware ID"));
+        assert_eq!(store.device("hardware-a").unwrap().sort_order, Some(0));
+        assert_eq!(store.device("hardware-b").unwrap().sort_order, Some(1));
+        assert_eq!(store.device("missing"), None);
     }
 
     #[test]

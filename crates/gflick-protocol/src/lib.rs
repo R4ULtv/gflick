@@ -77,8 +77,9 @@ pub enum RequestCommand {
     /// Reorders the device list. The order is host-side and keyed by hardware
     /// identity, so it survives reconnects and USB-path changes.
     ReorderDevices {
-        /// Hardware IDs in the desired order. Devices left out keep reported order
-        /// and sort after the listed ones.
+        /// The complete desired ordered prefix of saved hardware IDs. Omitted
+        /// devices have their positions cleared and sort afterward; duplicate or
+        /// unknown IDs are rejected. An empty list clears the order.
         hardware_ids: Vec<String>,
     },
 }

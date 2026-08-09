@@ -639,10 +639,7 @@ impl Agent {
     /// Assigns list positions by hardware identity. Unlisted devices keep `None`
     /// and sort after the ordered ones.
     fn reorder(&mut self, hardware_ids: &[String]) -> Result<protocol::ResponseData> {
-        for (position, hardware_id) in hardware_ids.iter().enumerate() {
-            let order = u32::try_from(position).context("device order is out of range")?;
-            self.settings.device_mut(hardware_id).sort_order = Some(order);
-        }
+        self.settings.replace_device_order(hardware_ids)?;
         self.save_settings()?;
         Ok(protocol::ResponseData::Acknowledged)
     }

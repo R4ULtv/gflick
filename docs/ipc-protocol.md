@@ -52,8 +52,10 @@ Two further commands manage host-side presentation only:
 
 - `set_device_nickname` stores a user-assigned display name, or clears it when
   `nickname` is null or blank. Names are trimmed and limited to 64 characters.
-- `reorder_devices` stores the device list order as a sequence of `hardware_id`
-  values.
+- `reorder_devices` accepts `hardware_ids` as the complete ordered prefix of
+  saved devices. Omitted saved devices have their positions cleared and sort
+  afterward. Duplicate or unknown hardware IDs are rejected, and an empty list
+  clears the order.
 
 Neither sends anything to the mouse. They therefore return `acknowledged` rather
 than a device snapshot, emit no `settings_changed` event, and are exempt from the
