@@ -68,6 +68,15 @@ The user archives contain setup, `bundle.json`, agent, tray, and CLI payloads. T
 developer archives contain Probe, Bench, and a direct-HID concurrency warning. Only
 the final publish job has `contents: write`; it refuses to replace an existing release.
 
+The release description is generated from non-merge commits since the previous tag.
+Only conventional `feat:` subjects are listed under `Features`; fixes, tests,
+documentation, and chores remain available through the `Full Changelog` comparison
+link. Preview the exact notes before tagging with:
+
+```sh
+bash scripts/generate-release-notes.sh v0.1.1 HEAD R4ULtv/gflick v0.2.0
+```
+
 ## Validate the prerelease
 
 Download all five assets into an empty directory and verify every external digest:

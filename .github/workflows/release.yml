@@ -120,6 +120,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Verify tag matches the website version
         shell: bash
         run: |
@@ -167,6 +169,16 @@ jobs:
             echo "release ${GITHUB_REF_NAME} already exists" >&2
             exit 1
           fi
+      - name: Generate concise release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous_tag=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^")
+          bash scripts/generate-release-notes.sh \
+            "$previous_tag" \
+            "$GITHUB_REF_NAME" \
+            "$GITHUB_REPOSITORY" \
+            > "$RUNNER_TEMP/release-notes.md"
       - name: Create prerelease
         env:
           GH_TOKEN: ${{ github.token }}
@@ -183,5 +195,5 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --prerelease \
-            --generate-notes \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
             --title "GFlick $GITHUB_REF_NAME"
