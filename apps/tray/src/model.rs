@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use gflick_protocol::{
     AgentEvent, BatteryState, DeviceState, DeviceSummary, DpiState, SettingsState,
 };
@@ -7,7 +5,7 @@ use gflick_protocol::{
 #[derive(Debug, Default)]
 pub struct TrayState {
     pub agent_connected: bool,
-    devices: BTreeMap<String, DeviceView>,
+    devices: Vec<DeviceView>,
 }
 
 #[derive(Debug, Clone)]
@@ -31,16 +29,14 @@ impl TrayState {
         self.devices = devices
             .into_iter()
             .map(|(summary, state)| {
-                let id = summary.id.clone();
-                let view = state.map_or_else(
+                state.map_or_else(
                     || DeviceView {
                         unavailable_reason: availability_reason(&summary),
                         summary,
                         settings: None,
                     },
                     DeviceView::from_state,
-                );
-                (id, view)
+                )
             })
             .collect();
     }
@@ -55,34 +51,31 @@ impl TrayState {
         match event {
             AgentEvent::ApplicationShuttingDown => self.disconnect_agent(),
             AgentEvent::DeviceConnected { device } => {
-                self.devices.insert(
-                    device.id.clone(),
-                    DeviceView {
-                        unavailable_reason: availability_reason(&device),
-                        summary: device,
-                        settings: None,
-                    },
-                );
+                self.replace_or_append(DeviceView {
+                    unavailable_reason: availability_reason(&device),
+                    summary: device,
+                    settings: None,
+                });
             }
             AgentEvent::DeviceReady { device } | AgentEvent::SettingsChanged { device } => {
-                self.devices
-                    .insert(device.device.id.clone(), DeviceView::from_state(*device));
+                self.replace_or_append(DeviceView::from_state(*device));
             }
             AgentEvent::DeviceUnavailable {
                 device_id, reason, ..
             } => {
-                if let Some(device) = self.devices.get_mut(&device_id) {
+                if let Some(device) = self.device_mut(&device_id) {
                     device.settings = None;
                     device.unavailable_reason = Some(reason);
                 }
             }
             AgentEvent::DeviceDisconnected { device_id } => {
-                self.devices.remove(&device_id);
+                if let Some(index) = self.device_index(&device_id) {
+                    self.devices.remove(index);
+                }
             }
             AgentEvent::BatteryChanged { device_id, battery } => {
                 if let Some(settings) = self
-                    .devices
-                    .get_mut(&device_id)
+                    .device_mut(&device_id)
                     .and_then(|device| device.settings.as_mut())
                 {
                     settings.battery = battery;
@@ -92,18 +85,14 @@ impl TrayState {
     }
 
     pub fn statuses(&self) -> Vec<DeviceStatus> {
-        self.devices.values().map(DeviceView::status).collect()
+        self.devices.iter().map(DeviceView::status).collect()
     }
 
     pub fn tooltip(&self) -> String {
         if !self.agent_connected {
             return "GFlick — agent offline".to_owned();
         }
-        let Some(device) = self
-            .devices
-            .values()
-            .find(|device| device.settings.is_some())
-        else {
+        let Some(device) = self.devices.iter().find(|device| device.settings.is_some()) else {
             return if self.devices.is_empty() {
                 "GFlick — no mouse connected".to_owned()
             } else {
@@ -124,11 +113,7 @@ impl TrayState {
         if !self.agent_connected {
             return "Offline".to_owned();
         }
-        let Some(device) = self
-            .devices
-            .values()
-            .find(|device| device.settings.is_some())
-        else {
+        let Some(device) = self.devices.iter().find(|device| device.settings.is_some()) else {
             return if self.devices.is_empty() {
                 "No mouse".to_owned()
             } else {
@@ -145,6 +130,26 @@ impl TrayState {
             |dpi| format!("{} DPI", dpi.current_x),
         );
         format!("{battery} · {dpi}")
+    }
+
+    fn device_index(&self, device_id: &str) -> Option<usize> {
+        self.devices
+            .iter()
+            .position(|device| device.summary.id == device_id)
+    }
+
+    fn device_mut(&mut self, device_id: &str) -> Option<&mut DeviceView> {
+        self.devices
+            .iter_mut()
+            .find(|device| device.summary.id == device_id)
+    }
+
+    fn replace_or_append(&mut self, device: DeviceView) {
+        if let Some(index) = self.device_index(&device.summary.id) {
+            self.devices[index] = device;
+        } else {
+            self.devices.push(device);
+        }
     }
 }
 
@@ -333,6 +338,127 @@ mod tests {
     }
 
     #[test]
+    fn replace_preserves_snapshot_order() {
+        let mut first = sample_state();
+        first.device.id = "mouse-z".to_owned();
+        first.device.nickname = Some("First".to_owned());
+        let mut second = sample_state();
+        second.device.id = "mouse-a".to_owned();
+        second.device.nickname = Some("Second".to_owned());
+
+        let mut tray = TrayState::default();
+        tray.replace(vec![
+            (first.device.clone(), Some(first)),
+            (second.device.clone(), Some(second)),
+        ]);
+
+        assert_eq!(status_names(&tray), ["First", "Second"]);
+    }
+
+    #[test]
+    fn ready_event_replaces_matching_device_in_place() {
+        let mut first = sample_state();
+        first.device.id = "mouse-z".to_owned();
+        first.device.nickname = Some("First".to_owned());
+        let mut second = sample_state();
+        second.device.id = "mouse-a".to_owned();
+        second.device.nickname = Some("Second".to_owned());
+        let mut replacement = first.clone();
+        replacement.device.nickname = Some("Updated first".to_owned());
+
+        let mut tray = TrayState::default();
+        tray.replace(vec![
+            (first.device.clone(), Some(first)),
+            (second.device.clone(), Some(second)),
+        ]);
+        tray.apply(AgentEvent::DeviceReady {
+            device: Box::new(replacement),
+        });
+
+        assert_eq!(status_names(&tray), ["Updated first", "Second"]);
+    }
+
+    #[test]
+    fn disconnected_event_preserves_survivor_order() {
+        let mut first = sample_state();
+        first.device.id = "mouse-z".to_owned();
+        first.device.nickname = Some("First".to_owned());
+        let mut second = sample_state();
+        second.device.id = "mouse-b".to_owned();
+        second.device.nickname = Some("Second".to_owned());
+        let mut third = sample_state();
+        third.device.id = "mouse-a".to_owned();
+        third.device.nickname = Some("Third".to_owned());
+
+        let mut tray = TrayState::default();
+        tray.replace(vec![
+            (first.device.clone(), Some(first)),
+            (second.device.clone(), Some(second)),
+            (third.device.clone(), Some(third)),
+        ]);
+        tray.apply(AgentEvent::DeviceDisconnected {
+            device_id: "mouse-b".to_owned(),
+        });
+
+        assert_eq!(status_names(&tray), ["First", "Third"]);
+    }
+
+    #[test]
+    fn connected_event_appends_new_device() {
+        let mut first = sample_state();
+        first.device.id = "mouse-z".to_owned();
+        first.device.nickname = Some("First".to_owned());
+        let mut second = sample_state();
+        second.device.id = "mouse-a".to_owned();
+        second.device.nickname = Some("Second".to_owned());
+        let mut connected = sample_state().device;
+        connected.id = "mouse-b".to_owned();
+        connected.nickname = Some("Third".to_owned());
+
+        let mut tray = TrayState::default();
+        tray.replace(vec![
+            (first.device.clone(), Some(first)),
+            (second.device.clone(), Some(second)),
+        ]);
+        tray.apply(AgentEvent::DeviceConnected { device: connected });
+
+        assert_eq!(status_names(&tray), ["First", "Second", "Third"]);
+    }
+
+    #[test]
+    fn primary_device_selection_uses_snapshot_order() {
+        let mut first = sample_state();
+        first.device.id = "mouse-z".to_owned();
+        first.device.nickname = Some("First".to_owned());
+        first
+            .settings
+            .battery
+            .as_mut()
+            .expect("sample battery")
+            .percentage = 91;
+        first.settings.dpi.as_mut().expect("sample DPI").current_x = 1_200;
+        let mut second = sample_state();
+        second.device.id = "mouse-a".to_owned();
+        second.device.nickname = Some("Second".to_owned());
+        second
+            .settings
+            .battery
+            .as_mut()
+            .expect("sample battery")
+            .percentage = 42;
+        second.settings.dpi.as_mut().expect("sample DPI").current_x = 400;
+
+        let mut tray = TrayState::default();
+        tray.replace(vec![
+            (first.device.clone(), Some(first)),
+            (second.device.clone(), Some(second)),
+        ]);
+
+        assert!(tray.tooltip().contains("First"));
+        assert_eq!(tray.title(), "91% · 1200 DPI");
+    }
+
+    #[test]
     fn queued_connected_event_preserves_restored_offline_metadata() {
         let mut state = sample_state();
         state.device.nickname = Some("Desk mouse".to_owned());
@@ -356,7 +482,10 @@ mod tests {
 
         assert_eq!(tray.statuses()[0].name, "Desk mouse");
         assert_eq!(
-            tray.devices[&state.device.id]
+            tray.devices
+                .iter()
+                .find(|device| device.summary.id == state.device.id)
+                .expect("device should remain in the tray")
                 .summary
                 .display_name
                 .as_deref(),
@@ -429,5 +558,12 @@ mod tests {
                 bunny_hopping: None,
             },
         }
+    }
+
+    fn status_names(tray: &TrayState) -> Vec<String> {
+        tray.statuses()
+            .into_iter()
+            .map(|status| status.name)
+            .collect()
     }
 }
