@@ -712,13 +712,14 @@ impl Agent {
         devices
     }
 
-    fn metadata_event_from_response(
+    fn publication_events_from_response(
         &self,
         command: &protocol::RequestCommand,
         response: &protocol::ServerMessage,
-    ) -> Option<protocol::AgentEvent> {
-        metadata_change_acknowledged(command, response)
-            .then(|| device_metadata_event(self.device_summaries()))
+    ) -> Vec<protocol::AgentEvent> {
+        response_publication_events(command, response, || {
+            device_metadata_event(self.device_summaries())
+        })
     }
 
     fn mouse(&self, id: &str) -> Result<&core::MouseDevice> {
@@ -1272,6 +1273,23 @@ fn device_metadata_event(devices: Vec<protocol::DeviceSummary>) -> protocol::Age
     protocol::AgentEvent::DeviceMetadataChanged { devices }
 }
 
+/// Maps one completed command response to its one permitted publication category.
+/// The metadata builder stays lazy so failed host-side mutations never construct or
+/// publish a snapshot.
+fn response_publication_events(
+    command: &protocol::RequestCommand,
+    response: &protocol::ServerMessage,
+    build_metadata_event: impl FnOnce() -> protocol::AgentEvent,
+) -> Vec<protocol::AgentEvent> {
+    if command_changes_settings(command) {
+        return settings_event_from_response(response).into_iter().collect();
+    }
+    if metadata_change_acknowledged(command, response) {
+        return vec![build_metadata_event()];
+    }
+    Vec::new()
+}
+
 fn settings_event_from_response(
     response: &protocol::ServerMessage,
 ) -> Option<protocol::AgentEvent> {
@@ -1733,16 +1751,10 @@ fn handle_pending_request(
     let shutdown_requested = matches!(pending.request.command, protocol::RequestCommand::Shutdown);
     let command = pending.request.command.clone();
     let response = agent.handle_request(pending.request);
-    let settings_event = command_changes_settings(&command)
-        .then(|| settings_event_from_response(&response))
-        .flatten();
-    let metadata_event = agent.metadata_event_from_response(&command, &response);
+    let events = agent.publication_events_from_response(&command, &response);
 
     let _ = pending.reply.send(response);
-    if let Some(event) = settings_event {
-        ipc.publish(event);
-    }
-    if let Some(event) = metadata_event {
+    for event in events {
         ipc.publish(event);
     }
     shutdown_requested
@@ -1910,7 +1922,7 @@ mod tests {
     }
 
     #[test]
-    fn metadata_changes_publish_only_after_a_successful_acknowledgement() {
+    fn publication_seam_emits_exactly_one_metadata_event_for_successful_host_changes() {
         let rename = protocol::RequestCommand::SetDeviceNickname {
             device_id: "mouse-1".to_owned(),
             nickname: Some("Desk mouse".to_owned()),
@@ -1920,50 +1932,120 @@ mod tests {
         };
         let acknowledged =
             protocol::ServerMessage::success(1, protocol::ResponseData::Acknowledged);
-        let persistence_failed = protocol::ServerMessage::error(
-            1,
-            protocol::ErrorCode::PersistenceFailed,
-            "could not save preferences",
-        );
-        let validation_failed = protocol::ServerMessage::error(
-            1,
-            protocol::ErrorCode::OperationFailed,
-            "duplicate hardware ID",
-        );
 
-        assert!(command_changes_metadata(&rename));
-        assert!(command_changes_metadata(&reorder));
-        assert!(metadata_change_acknowledged(&rename, &acknowledged));
-        assert!(metadata_change_acknowledged(&reorder, &acknowledged));
-        assert!(!metadata_change_acknowledged(&rename, &persistence_failed));
-        assert!(!metadata_change_acknowledged(&reorder, &validation_failed));
-        assert!(!metadata_change_acknowledged(
-            &protocol::RequestCommand::ListDevices,
-            &acknowledged
-        ));
+        for command in [&rename, &reorder] {
+            let builder_calls = std::cell::Cell::new(0);
+            let events = response_publication_events(command, &acknowledged, || {
+                builder_calls.set(builder_calls.get() + 1);
+                device_metadata_event(vec![])
+            });
+            assert_eq!(builder_calls.get(), 1);
+            assert_eq!(events, vec![device_metadata_event(vec![])]);
+        }
     }
 
     #[test]
-    fn metadata_event_payload_matches_the_list_devices_payload() {
-        let devices = vec![
-            ordered_summary("first", Some(0)),
-            ordered_summary("second", Some(1)),
-        ];
-        let list_response = protocol::ResponseData::Devices {
-            devices: devices.clone(),
+    fn publication_seam_skips_metadata_for_failed_and_non_mutating_commands() {
+        let rename = protocol::RequestCommand::SetDeviceNickname {
+            device_id: "mouse-1".to_owned(),
+            nickname: Some("Desk mouse".to_owned()),
         };
-        let event = device_metadata_event(devices);
+        let reorder = protocol::RequestCommand::ReorderDevices {
+            hardware_ids: vec!["hardware-1".to_owned()],
+        };
+        let failures = [
+            protocol::ServerMessage::error(
+                1,
+                protocol::ErrorCode::PersistenceFailed,
+                "could not save preferences",
+            ),
+            protocol::ServerMessage::error(
+                1,
+                protocol::ErrorCode::OperationFailed,
+                "duplicate hardware ID",
+            ),
+        ];
+
+        for (command, response) in [
+            (&rename, &failures[0]),
+            (&reorder, &failures[1]),
+            (
+                &protocol::RequestCommand::ListDevices,
+                &protocol::ServerMessage::success(1, protocol::ResponseData::Acknowledged),
+            ),
+        ] {
+            let builder_calls = std::cell::Cell::new(0);
+            let events = response_publication_events(command, response, || {
+                builder_calls.set(builder_calls.get() + 1);
+                device_metadata_event(vec![])
+            });
+            assert!(events.is_empty());
+            assert_eq!(builder_calls.get(), 0);
+        }
+    }
+
+    #[test]
+    fn publication_seam_keeps_hid_changes_as_one_settings_event() {
+        let command = protocol::RequestCommand::SetDpi {
+            device_id: "mouse-1".to_owned(),
+            dpi: 800,
+        };
+        let state = sample_device_state();
+        let response = protocol::ServerMessage::success(
+            1,
+            protocol::ResponseData::Device {
+                device: Box::new(state.clone()),
+            },
+        );
+        let builder_calls = std::cell::Cell::new(0);
+        let events = response_publication_events(&command, &response, || {
+            builder_calls.set(builder_calls.get() + 1);
+            device_metadata_event(vec![])
+        });
+
+        assert_eq!(builder_calls.get(), 0);
+        assert_eq!(
+            events,
+            vec![protocol::AgentEvent::SettingsChanged {
+                device: Box::new(state)
+            }]
+        );
+    }
+
+    #[test]
+    fn list_and_metadata_event_use_the_same_agent_summary_path() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut agent = Agent::new(
+            Duration::from_secs(1),
+            directory.path().join("settings.json"),
+            false,
+        )
+        .unwrap();
+        let list_response = agent
+            .execute_command(protocol::RequestCommand::ListDevices)
+            .unwrap();
+        let acknowledged =
+            protocol::ServerMessage::success(1, protocol::ResponseData::Acknowledged);
+        let events = agent.publication_events_from_response(
+            &protocol::RequestCommand::SetDeviceNickname {
+                device_id: "mouse-1".to_owned(),
+                nickname: Some("Desk mouse".to_owned()),
+            },
+            &acknowledged,
+        );
 
         let protocol::ResponseData::Devices { devices } = list_response else {
             panic!("expected a device list response");
         };
-        let protocol::AgentEvent::DeviceMetadataChanged {
-            devices: event_devices,
-        } = event
+        let [
+            protocol::AgentEvent::DeviceMetadataChanged {
+                devices: event_devices,
+            },
+        ] = events.as_slice()
         else {
             panic!("expected a metadata event");
         };
-        assert_eq!(event_devices, devices);
+        assert_eq!(*event_devices, devices);
     }
 
     #[test]
