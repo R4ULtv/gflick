@@ -97,8 +97,14 @@ is unknown and stored preferences cannot be keyed by it. The agent therefore als
 the pre-HID++ USB identity — vendor, product, paired device index, and serial number —
 each time a device is ready, and matches an unopened interface against it. That restores
 the name, nickname, and list position immediately at startup. The paired device index is
-part of the match because one receiver serves several mice. A device that has never been
-ready on this host still has no `display_name` until it wakes once.
+part of the match because one receiver serves several mice. Empty and whitespace-only
+USB serials are normalized to an absent serial, including values loaded from existing
+version-1 settings. The agent first requires exactly one full identity match. If there is
+no exact match and either side lacks a serial, it may use the vendor, product, and paired
+device index only when exactly one stored device qualifies. Ambiguous matches fail closed,
+so no cached name, nickname, list position, or `hardware_id` is attached to the unopened
+interface. Two different nonblank serials never match through this fallback. A device that
+has never been ready on this host still has no `display_name` until it wakes once.
 
 `nickname` and `sort_order` are additive optional fields holding the host-side name
 and list position described above. They are stored by the agent, never written to the

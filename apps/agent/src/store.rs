@@ -100,8 +100,54 @@ pub struct UsbIdentity {
     pub vendor_id: u16,
     pub product_id: u16,
     pub device_index: u8,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_serial_number"
+    )]
     pub serial_number: Option<String>,
+}
+
+impl UsbIdentity {
+    pub fn new(
+        vendor_id: u16,
+        product_id: u16,
+        device_index: u8,
+        serial_number: Option<String>,
+    ) -> Self {
+        Self {
+            vendor_id,
+            product_id,
+            device_index,
+            serial_number: canonical_serial_number(serial_number),
+        }
+    }
+
+    fn canonicalized(&self) -> Self {
+        Self::new(
+            self.vendor_id,
+            self.product_id,
+            self.device_index,
+            self.serial_number.clone(),
+        )
+    }
+
+    fn same_usb_slot(&self, other: &Self) -> bool {
+        self.vendor_id == other.vendor_id
+            && self.product_id == other.product_id
+            && self.device_index == other.device_index
+    }
+}
+
+fn canonical_serial_number(serial_number: Option<String>) -> Option<String> {
+    serial_number.filter(|serial| !serial.trim().is_empty())
+}
+
+fn deserialize_serial_number<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer).map(canonical_serial_number)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -195,18 +241,51 @@ impl SettingsStore {
             .or_default()
     }
 
-    /// Finds stored preferences for a device that has not been opened yet, by the
-    /// USB identity recorded the last time it was ready. Returns the matching
-    /// `hardware_id` with them, since callers need it to key later writes.
-    pub fn device_by_usb_identity(
+    /// Resolves stored preferences for a device that has not been opened yet by
+    /// the USB identity recorded the last time it was ready. Exact identities win.
+    /// A missing serial may fall back to the same USB slot only when that match is
+    /// unique; ambiguity fails closed.
+    pub fn resolve_device_by_usb_identity(
         &self,
         identity: &UsbIdentity,
     ) -> Option<(&str, &DevicePreferences)> {
-        self.document
+        let identity = identity.canonicalized();
+        let stored_identities = self
+            .document
             .devices
             .iter()
-            .find(|(_, preferences)| preferences.usb_identity.as_ref() == Some(identity))
-            .map(|(hardware_id, preferences)| (hardware_id.as_str(), preferences))
+            .filter_map(|(hardware_id, preferences)| {
+                preferences
+                    .usb_identity
+                    .as_ref()
+                    .map(UsbIdentity::canonicalized)
+                    .map(|stored| (hardware_id.as_str(), preferences, stored))
+            })
+            .collect::<Vec<_>>();
+
+        let exact_matches = stored_identities
+            .iter()
+            .filter(|(_, _, stored)| stored == &identity)
+            .map(|(hardware_id, preferences, _)| (*hardware_id, *preferences))
+            .collect::<Vec<_>>();
+        match exact_matches.as_slice() {
+            [matched] => return Some(*matched),
+            [] => {}
+            _ => return None,
+        }
+
+        let relaxed_matches = stored_identities
+            .iter()
+            .filter(|(_, _, stored)| {
+                stored.same_usb_slot(&identity)
+                    && (stored.serial_number.is_none() || identity.serial_number.is_none())
+            })
+            .map(|(hardware_id, preferences, _)| (*hardware_id, *preferences))
+            .collect::<Vec<_>>();
+        match relaxed_matches.as_slice() {
+            [matched] => Some(*matched),
+            _ => None,
+        }
     }
 
     pub fn insert_if_missing(&mut self, hardware_id: &str, preferences: DevicePreferences) -> bool {
@@ -292,6 +371,15 @@ fn quarantine_path(path: &Path) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn usb_identity(device_index: u8, serial_number: Option<&str>) -> UsbIdentity {
+        UsbIdentity::new(
+            0x046d,
+            0xc54d,
+            device_index,
+            serial_number.map(str::to_owned),
+        )
+    }
 
     fn sample_preferences() -> DevicePreferences {
         DevicePreferences {
@@ -391,20 +479,137 @@ mod tests {
     fn finds_a_never_opened_device_by_its_usb_identity() {
         let directory = tempfile::tempdir().unwrap();
         let mut store = SettingsStore::load(directory.path().join("settings.json")).unwrap();
-        let identity = UsbIdentity {
-            vendor_id: 0x046d,
-            product_id: 0xc54d,
-            device_index: 1,
-            serial_number: None,
-        };
+        let identity = usb_identity(1, None);
         let device = store.device_mut("046d:unit:1077e69f");
         device.cached_model_name = Some("PRO X Superlight 2".to_owned());
         device.nickname = Some("Desk mouse".to_owned());
         device.usb_identity = Some(identity.clone());
 
-        let (hardware_id, preferences) = store.device_by_usb_identity(&identity).unwrap();
+        let (hardware_id, preferences) = store.resolve_device_by_usb_identity(&identity).unwrap();
         assert_eq!(hardware_id, "046d:unit:1077e69f");
         assert_eq!(preferences.nickname.as_deref(), Some("Desk mouse"));
+    }
+
+    #[test]
+    fn exact_serial_match_wins() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut store = SettingsStore::load(directory.path().join("settings.json")).unwrap();
+        let identity = usb_identity(1, Some("SERIAL-A"));
+        store.device_mut("unit-a").usb_identity = Some(identity.clone());
+        store.device_mut("unit-without-serial").usb_identity = Some(usb_identity(1, None));
+
+        assert_eq!(
+            store.resolve_device_by_usb_identity(&identity).unwrap().0,
+            "unit-a"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_blank_serials_as_missing() {
+        assert_eq!(usb_identity(1, None).serial_number, None);
+        assert_eq!(usb_identity(1, Some("")).serial_number, None);
+        assert_eq!(usb_identity(1, Some(" \t\r\n")).serial_number, None);
+        assert_eq!(
+            usb_identity(1, Some(" SERIAL ")).serial_number.as_deref(),
+            Some(" SERIAL ")
+        );
+    }
+
+    #[test]
+    fn uniquely_relaxes_a_match_when_either_serial_is_missing() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut stored_without_serial =
+            SettingsStore::load(directory.path().join("missing-stored.json")).unwrap();
+        stored_without_serial.device_mut("unit-a").usb_identity = Some(usb_identity(1, None));
+        assert_eq!(
+            stored_without_serial
+                .resolve_device_by_usb_identity(&usb_identity(1, Some("SERIAL-A")))
+                .unwrap()
+                .0,
+            "unit-a"
+        );
+
+        let mut candidate_without_serial =
+            SettingsStore::load(directory.path().join("missing-candidate.json")).unwrap();
+        candidate_without_serial.device_mut("unit-b").usb_identity =
+            Some(usb_identity(1, Some("SERIAL-B")));
+        assert_eq!(
+            candidate_without_serial
+                .resolve_device_by_usb_identity(&usb_identity(1, None))
+                .unwrap()
+                .0,
+            "unit-b"
+        );
+    }
+
+    #[test]
+    fn ambiguous_relaxed_match_fails_closed() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut store = SettingsStore::load(directory.path().join("settings.json")).unwrap();
+        store.device_mut("unit-a").usb_identity = Some(usb_identity(1, Some("SERIAL-A")));
+        store.device_mut("unit-b").usb_identity = Some(usb_identity(1, Some("SERIAL-B")));
+
+        assert!(
+            store
+                .resolve_device_by_usb_identity(&usb_identity(1, None))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn ambiguous_exact_match_fails_closed() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut store = SettingsStore::load(directory.path().join("settings.json")).unwrap();
+        let identity = usb_identity(1, Some("SERIAL-A"));
+        store.device_mut("unit-a").usb_identity = Some(identity.clone());
+        store.device_mut("unit-b").usb_identity = Some(identity.clone());
+
+        assert!(store.resolve_device_by_usb_identity(&identity).is_none());
+    }
+
+    #[test]
+    fn distinct_real_serials_never_relax_match() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut store = SettingsStore::load(directory.path().join("settings.json")).unwrap();
+        store.device_mut("unit-a").usb_identity = Some(usb_identity(1, Some("SERIAL-A")));
+
+        assert!(
+            store
+                .resolve_device_by_usb_identity(&usb_identity(1, Some("SERIAL-B")))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn historical_empty_serial_loads_and_matches_a_missing_serial() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        fs::write(
+            &path,
+            br#"{"version":1,"devices":{"unit-a":{"usb_identity":{"vendor_id":1133,"product_id":50509,"device_index":1,"serial_number":""}}}}"#,
+        )
+        .unwrap();
+
+        let store = SettingsStore::load(path.clone()).unwrap();
+        assert_eq!(
+            store
+                .device("unit-a")
+                .unwrap()
+                .usb_identity
+                .as_ref()
+                .unwrap()
+                .serial_number,
+            None
+        );
+        assert_eq!(
+            store
+                .resolve_device_by_usb_identity(&usb_identity(1, None))
+                .unwrap()
+                .0,
+            "unit-a"
+        );
+        store.save().unwrap();
+        assert!(!fs::read_to_string(path).unwrap().contains("serial_number"));
     }
 
     /// One receiver serves several mice, so the paired slot must be part of the match.
@@ -412,21 +617,19 @@ mod tests {
     fn usb_identity_match_distinguishes_devices_behind_one_receiver() {
         let directory = tempfile::tempdir().unwrap();
         let mut store = SettingsStore::load(directory.path().join("settings.json")).unwrap();
-        let first = UsbIdentity {
-            vendor_id: 0x046d,
-            product_id: 0xc54d,
-            device_index: 1,
-            serial_number: None,
-        };
-        let second = UsbIdentity {
-            device_index: 2,
-            ..first.clone()
-        };
+        let first = usb_identity(1, None);
+        let second = usb_identity(2, None);
         store.device_mut("unit-a").usb_identity = Some(first.clone());
         store.device_mut("unit-b").usb_identity = Some(second.clone());
 
-        assert_eq!(store.device_by_usb_identity(&first).unwrap().0, "unit-a");
-        assert_eq!(store.device_by_usb_identity(&second).unwrap().0, "unit-b");
+        assert_eq!(
+            store.resolve_device_by_usb_identity(&first).unwrap().0,
+            "unit-a"
+        );
+        assert_eq!(
+            store.resolve_device_by_usb_identity(&second).unwrap().0,
+            "unit-b"
+        );
     }
 
     /// Settings written before these fields existed must still load.

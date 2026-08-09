@@ -478,7 +478,9 @@ impl Agent {
                         // identity recorded the last time it was ready.
                         let stored = match session_hardware_id {
                             Some(id) => self.settings.device(id).map(|p| (id, p)),
-                            None => self.settings.device_by_usb_identity(&usb_identity(device)),
+                            None => self
+                                .settings
+                                .resolve_device_by_usb_identity(&usb_identity(device)),
                         };
                         device_summary(
                             device,
@@ -1229,12 +1231,12 @@ fn sort_by_user_order(devices: &mut [protocol::DeviceSummary]) {
 }
 
 fn usb_identity(device: &core::ManagedDevice) -> store::UsbIdentity {
-    store::UsbIdentity {
-        vendor_id: device.vendor_id,
-        product_id: device.product_id,
-        device_index: device.device_index,
-        serial_number: device.serial_number.clone(),
-    }
+    store::UsbIdentity::new(
+        device.vendor_id,
+        device.product_id,
+        device.device_index,
+        device.serial_number.clone(),
+    )
 }
 
 fn device_summary(

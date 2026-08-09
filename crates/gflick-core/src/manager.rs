@@ -108,7 +108,7 @@ impl DeviceManager {
                 vendor_id: short.vendor_id(),
                 product_id: short.product_id(),
                 product_name: short.product_string().map(str::to_owned),
-                serial_number: short.serial_number().map(str::to_owned),
+                serial_number: canonical_serial_number(short.serial_number()),
                 connection,
                 device_index,
                 short_path: short.path().to_owned(),
@@ -226,16 +226,19 @@ fn is_receiver(info: &DeviceInfo) -> bool {
 }
 
 fn stable_id(info: &DeviceInfo, device_index: u8) -> String {
-    let identity = info
-        .serial_number()
-        .filter(|serial| !serial.is_empty())
-        .map(str::to_owned)
+    let identity = canonical_serial_number(info.serial_number())
         .unwrap_or_else(|| format!("path-{:016x}", fnv1a64(info.path().to_bytes())));
     format!(
         "{:04x}:{:04x}:{identity}:{device_index:02x}",
         info.vendor_id(),
         info.product_id()
     )
+}
+
+fn canonical_serial_number(serial_number: Option<&str>) -> Option<String> {
+    serial_number
+        .filter(|serial| !serial.trim().is_empty())
+        .map(str::to_owned)
 }
 
 fn fnv1a64(bytes: &[u8]) -> u64 {
@@ -270,6 +273,17 @@ mod tests {
     fn fallback_identity_hash_is_stable() {
         assert_eq!(fnv1a64(b"gflick"), fnv1a64(b"gflick"));
         assert_ne!(fnv1a64(b"gflick"), fnv1a64(b"other"));
+    }
+
+    #[test]
+    fn canonicalizes_blank_usb_serials_without_changing_real_ones() {
+        assert_eq!(canonical_serial_number(None), None);
+        assert_eq!(canonical_serial_number(Some("")), None);
+        assert_eq!(canonical_serial_number(Some(" \t\r\n")), None);
+        assert_eq!(
+            canonical_serial_number(Some(" REAL-SERIAL ")),
+            Some(" REAL-SERIAL ".to_owned())
+        );
     }
 
     #[test]
