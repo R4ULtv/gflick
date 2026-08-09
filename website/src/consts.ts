@@ -18,7 +18,7 @@ export const SETUP_DOC = `${REPO}/blob/main/apps/setup/README.md`;
  * asset URL has to name the version; there is no `/releases/latest/download/`
  * shortcut while the filename itself carries the tag.
  */
-export const VERSION = "0.1.1";
+export const VERSION = "0.2.0";
 
 const ASSETS = `${REPO}/releases/download/v${VERSION}`;
 
