@@ -179,7 +179,10 @@ fn reconcile_transient_identities(previous: &[ManagedDevice], current: &mut [Man
                 .iter()
                 .filter(|candidate| same_managed_kind(candidate, device))
                 .count();
-            (previous_matches.len() == 1 && current_matches == 1).then_some(previous_matches[0])
+            match previous_matches.as_slice() {
+                [matched] if current_matches == 1 => Some(*matched),
+                _ => None,
+            }
         });
 
         if let Some(old) = matched {
@@ -331,6 +334,17 @@ mod tests {
         assert_eq!(current[0].id, previous[0].id);
         assert_eq!(current[0].serial_number, previous[0].serial_number);
         assert!(diff_devices(&previous, &current).is_empty());
+    }
+
+    #[test]
+    fn leaves_a_missing_serial_identity_unchanged_without_previous_matches() {
+        let previous = [];
+        let mut current = [managed_device_with("fallback", None, "new-path")];
+
+        reconcile_transient_identities(&previous, &mut current);
+
+        assert_eq!(current[0].id, "fallback");
+        assert_eq!(current[0].serial_number, None);
     }
 
     #[test]
