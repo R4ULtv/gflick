@@ -68,7 +68,7 @@ These modes turn the agent binary into a small diagnostic IPC client. Start a no
 Send one protocol request:
 
 ```powershell
-'{"id":1,"protocol_version":1,"command":"ping"}' | cargo run -q -p gflick-agent -- --request-stdin
+'{"id":1,"protocol_version":2,"command":"ping"}' | cargo run -q -p gflick-agent -- --request-stdin
 ```
 
 Print events until interrupted, or stop after a fixed number:

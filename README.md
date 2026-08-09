@@ -127,7 +127,7 @@ cargo run -p gflick-agent
 
 The agent periodically discovers devices, keeps opened mouse sessions owned by one
 thread, refreshes battery state, persists per-user preferences, and serves protocol
-version 1 over an OS-local socket. Release bundles are installed and maintained by the
+version 2 over an OS-local socket. Release bundles are installed and maintained by the
 standalone setup bootstrapper:
 
 ```sh

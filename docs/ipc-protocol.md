@@ -1,9 +1,10 @@
 # Agent IPC protocol
 
-Protocol version 1 uses newline-delimited JSON over an OS-local socket. Windows uses
-the `gflick-agent-v1.sock` named-pipe namespace. macOS uses the same filename under
+Protocol version 2 uses newline-delimited JSON over an OS-local socket. Windows uses
+the `gflick-agent-v2.sock` named-pipe namespace. macOS uses the same filename under
 the process's per-user temporary directory. This is local IPC rather than a network
-listener.
+listener. Version 2 is not compatible with version 1: clients and agents must move
+together because the socket namespace and externally tagged event enum changed.
 
 The canonical Rust types are in `crates/gflick-protocol`. A settings application
 should depend on that crate when possible instead of duplicating the JSON schema.
@@ -15,11 +16,11 @@ tagged `command`. Every normal response repeats the ID and protocol version. One
 value is written per line, with a 64 KiB maximum message size.
 
 ```json
-{"id":1,"protocol_version":1,"command":"ping"}
+{"id":1,"protocol_version":2,"command":"ping"}
 ```
 
 ```json
-{"message":"response","id":1,"protocol_version":1,"result":{"status":"success","data":{"type":"pong"}}}
+{"message":"response","id":1,"protocol_version":2,"result":{"status":"success","data":{"type":"pong"}}}
 ```
 
 Supported read operations are `ping`, `list_devices`, and `get_device`. A device
@@ -59,7 +60,10 @@ Two further commands manage host-side presentation only:
 
 Neither sends anything to the mouse. They therefore return `acknowledged` rather
 than a device snapshot, emit no `settings_changed` event, and are exempt from the
-device-ready guard so a device can be renamed while it is still initializing.
+device-ready guard so a device can be renamed while it is still initializing. After
+a successful durable save, the agent broadcasts exactly one
+`device_metadata_changed` event containing the complete ordered `DeviceSummary`
+list. Validation or persistence failures broadcast nothing.
 Because both persist under `hardware_id`, a device that has never been learned on
 this host cannot be renamed while offline. A previously learned offline device may
 be renamed when its USB identity resolves uniquely to its stored hardware identity;
@@ -77,10 +81,10 @@ Each device summary contains two different identities:
   paths, and wired/wireless transport. Persisted preferences must use this value and
   must never fall back to the routing ID.
 
-`hardware_id` is additive and optional in protocol v1 so older recorded messages without
-it still deserialize. A connected but not-yet-ready mouse reports its stored hardware
-identity when a unique prior USB identity is known; otherwise it remains absent until the
-agent can query the live device.
+`hardware_id` is optional because an unopened mouse may not have one yet. Recorded
+messages from before the field existed still deserialize. A connected but not-yet-ready
+mouse reports its stored hardware identity when a unique prior USB identity is known;
+otherwise it remains absent until the agent can query the live device.
 
 `display_name` is a separate additive optional field containing the model name reported
 by the mouse through HID++. Some firmware does not expose it, particularly when connected
@@ -117,8 +121,8 @@ device, and are absent until the mouse has a `hardware_id`. Clients that show a
 nickname should keep the reported model name visible somewhere, so the underlying
 hardware stays identifiable.
 
-`DeviceSummary` also carries an additive `availability` object while retaining the
-original `ready` boolean for protocol-v1 clients. Its states are:
+`DeviceSummary` also carries an `availability` object alongside the original `ready`
+boolean. Its states are:
 
 - `initializing`: the USB interface was just discovered and the first HID++ open is pending
 - `ready`: the mouse is open and its complete settings snapshot is available
@@ -164,6 +168,11 @@ A connection that sends `subscribe` becomes an event-only stream after receiving
 - `device_disconnected`
 - `battery_changed`
 - `settings_changed`
+- `device_metadata_changed`: authoritative host-side metadata for every currently
+  discovered device, in the same order as `list_devices`. It includes availability,
+  identity, names, and sort positions but deliberately excludes battery, DPI, and
+  other live settings. Clients merge matching summaries with their existing live
+  snapshots, add new summaries, and remove summaries absent from the event.
 - `application_shutting_down`: the agent is exiting and all subscribed UI components
   should close without attempting to reconnect
 
@@ -199,7 +208,7 @@ commands to that owner thread, preventing concurrent HID operations from racing.
 Malformed JSON, unsupported protocol versions, missing devices, sleeping devices, and
 HID operation failures have distinct structured error codes.
 
-Protocol v1 does not expose onboard-flash editing. Profile reads and the existing
+Protocol v2 does not expose onboard-flash editing. Profile reads and the existing
 transactional flash API remain available through the diagnostic probe until the UI
 workflow has explicit confirmation and recovery design. The local endpoint is not yet
 an authentication boundary; production Windows service packaging must apply a

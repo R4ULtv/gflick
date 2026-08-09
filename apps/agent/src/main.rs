@@ -468,40 +468,9 @@ impl Agent {
         match command {
             RequestCommand::Ping => Ok(protocol::ResponseData::Pong),
             RequestCommand::Shutdown => Ok(protocol::ResponseData::Acknowledged),
-            RequestCommand::ListDevices => {
-                let mut devices: Vec<protocol::DeviceSummary> = self
-                    .manager
-                    .devices()
-                    .iter()
-                    .map(|device| {
-                        let active = self.active.get(&device.id);
-                        let unavailable = self.unavailable.get(&device.id);
-                        let availability = if active.is_some() {
-                            protocol::DeviceAvailability::Ready
-                        } else if let Some(unavailable) = unavailable {
-                            unavailable.availability()
-                        } else {
-                            protocol::DeviceAvailability::Initializing
-                        };
-                        let session_hardware_id = active
-                            .and_then(|mouse| mouse.hardware_id.as_deref())
-                            .or_else(|| {
-                                unavailable.and_then(|device| device.hardware_id.as_deref())
-                            });
-                        let metadata = self.resolve_device_metadata(device, session_hardware_id);
-                        device_summary(
-                            device,
-                            availability,
-                            metadata.hardware_id.as_deref(),
-                            active.and_then(|mouse| mouse.display_name.as_deref()),
-                            metadata.preferences,
-                        )
-                    })
-                    .collect();
-
-                sort_by_user_order(&mut devices);
-                Ok(protocol::ResponseData::Devices { devices })
-            }
+            RequestCommand::ListDevices => Ok(protocol::ResponseData::Devices {
+                devices: self.device_summaries(),
+            }),
             RequestCommand::GetDevice { device_id } => self.device_response(&device_id),
             RequestCommand::Subscribe => Ok(protocol::ResponseData::Subscribed),
             RequestCommand::SetDeviceNickname {
@@ -707,6 +676,49 @@ impl Agent {
                 self.settings.path().display()
             )
         })
+    }
+
+    /// Builds the authoritative ordered host-metadata snapshot used by both
+    /// `list_devices` and metadata-change events.
+    fn device_summaries(&self) -> Vec<protocol::DeviceSummary> {
+        let mut devices: Vec<protocol::DeviceSummary> = self
+            .manager
+            .devices()
+            .iter()
+            .map(|device| {
+                let active = self.active.get(&device.id);
+                let unavailable = self.unavailable.get(&device.id);
+                let availability = if active.is_some() {
+                    protocol::DeviceAvailability::Ready
+                } else if let Some(unavailable) = unavailable {
+                    unavailable.availability()
+                } else {
+                    protocol::DeviceAvailability::Initializing
+                };
+                let session_hardware_id = active
+                    .and_then(|mouse| mouse.hardware_id.as_deref())
+                    .or_else(|| unavailable.and_then(|device| device.hardware_id.as_deref()));
+                let metadata = self.resolve_device_metadata(device, session_hardware_id);
+                device_summary(
+                    device,
+                    availability,
+                    metadata.hardware_id.as_deref(),
+                    active.and_then(|mouse| mouse.display_name.as_deref()),
+                    metadata.preferences,
+                )
+            })
+            .collect();
+        sort_by_user_order(&mut devices);
+        devices
+    }
+
+    fn metadata_event_from_response(
+        &self,
+        command: &protocol::RequestCommand,
+        response: &protocol::ServerMessage,
+    ) -> Option<protocol::AgentEvent> {
+        metadata_change_acknowledged(command, response)
+            .then(|| device_metadata_event(self.device_summaries()))
     }
 
     fn mouse(&self, id: &str) -> Result<&core::MouseDevice> {
@@ -1232,6 +1244,34 @@ fn command_changes_settings(command: &protocol::RequestCommand) -> bool {
     )
 }
 
+fn command_changes_metadata(command: &protocol::RequestCommand) -> bool {
+    matches!(
+        command,
+        protocol::RequestCommand::SetDeviceNickname { .. }
+            | protocol::RequestCommand::ReorderDevices { .. }
+    )
+}
+
+fn metadata_change_acknowledged(
+    command: &protocol::RequestCommand,
+    response: &protocol::ServerMessage,
+) -> bool {
+    command_changes_metadata(command)
+        && matches!(
+            response,
+            protocol::ServerMessage::Response {
+                result: protocol::ResponseResult::Success {
+                    data: protocol::ResponseData::Acknowledged
+                },
+                ..
+            }
+        )
+}
+
+fn device_metadata_event(devices: Vec<protocol::DeviceSummary>) -> protocol::AgentEvent {
+    protocol::AgentEvent::DeviceMetadataChanged { devices }
+}
+
 fn settings_event_from_response(
     response: &protocol::ServerMessage,
 ) -> Option<protocol::AgentEvent> {
@@ -1665,17 +1705,7 @@ fn main() -> Result<()> {
         }
 
         while let Some(pending) = ipc.try_recv()? {
-            let shutdown_requested =
-                matches!(pending.request.command, protocol::RequestCommand::Shutdown);
-            let publish_change = command_changes_settings(&pending.request.command);
-            let response = agent.handle_request(pending.request);
-            if publish_change {
-                if let Some(event) = settings_event_from_response(&response) {
-                    ipc.publish(event);
-                }
-            }
-            let _ = pending.reply.send(response);
-            if shutdown_requested {
+            if handle_pending_request(&mut agent, &ipc, pending) {
                 break 'run;
             }
         }
@@ -1684,17 +1714,7 @@ fn main() -> Result<()> {
             .saturating_duration_since(std::time::Instant::now())
             .min(Duration::from_secs(1));
         if let Some(pending) = ipc.recv_timeout(wait)? {
-            let shutdown_requested =
-                matches!(pending.request.command, protocol::RequestCommand::Shutdown);
-            let publish_change = command_changes_settings(&pending.request.command);
-            let response = agent.handle_request(pending.request);
-            if publish_change {
-                if let Some(event) = settings_event_from_response(&response) {
-                    ipc.publish(event);
-                }
-            }
-            let _ = pending.reply.send(response);
-            if shutdown_requested {
+            if handle_pending_request(&mut agent, &ipc, pending) {
                 break 'run;
             }
         }
@@ -1703,6 +1723,29 @@ fn main() -> Result<()> {
     agent.shutdown();
     println!("GFlick agent stopped cleanly.");
     Ok(())
+}
+
+fn handle_pending_request(
+    agent: &mut Agent,
+    ipc: &ipc::IpcHandle,
+    pending: ipc::PendingRequest,
+) -> bool {
+    let shutdown_requested = matches!(pending.request.command, protocol::RequestCommand::Shutdown);
+    let command = pending.request.command.clone();
+    let response = agent.handle_request(pending.request);
+    let settings_event = command_changes_settings(&command)
+        .then(|| settings_event_from_response(&response))
+        .flatten();
+    let metadata_event = agent.metadata_event_from_response(&command, &response);
+
+    let _ = pending.reply.send(response);
+    if let Some(event) = settings_event {
+        ipc.publish(event);
+    }
+    if let Some(event) = metadata_event {
+        ipc.publish(event);
+    }
+    shutdown_requested
 }
 
 fn install_shutdown_handler(shutdown: &Arc<AtomicBool>) -> Result<()> {
@@ -1864,6 +1907,63 @@ mod tests {
                 dpi: 800,
             }
         ));
+    }
+
+    #[test]
+    fn metadata_changes_publish_only_after_a_successful_acknowledgement() {
+        let rename = protocol::RequestCommand::SetDeviceNickname {
+            device_id: "mouse-1".to_owned(),
+            nickname: Some("Desk mouse".to_owned()),
+        };
+        let reorder = protocol::RequestCommand::ReorderDevices {
+            hardware_ids: vec!["hardware-1".to_owned()],
+        };
+        let acknowledged =
+            protocol::ServerMessage::success(1, protocol::ResponseData::Acknowledged);
+        let persistence_failed = protocol::ServerMessage::error(
+            1,
+            protocol::ErrorCode::PersistenceFailed,
+            "could not save preferences",
+        );
+        let validation_failed = protocol::ServerMessage::error(
+            1,
+            protocol::ErrorCode::OperationFailed,
+            "duplicate hardware ID",
+        );
+
+        assert!(command_changes_metadata(&rename));
+        assert!(command_changes_metadata(&reorder));
+        assert!(metadata_change_acknowledged(&rename, &acknowledged));
+        assert!(metadata_change_acknowledged(&reorder, &acknowledged));
+        assert!(!metadata_change_acknowledged(&rename, &persistence_failed));
+        assert!(!metadata_change_acknowledged(&reorder, &validation_failed));
+        assert!(!metadata_change_acknowledged(
+            &protocol::RequestCommand::ListDevices,
+            &acknowledged
+        ));
+    }
+
+    #[test]
+    fn metadata_event_payload_matches_the_list_devices_payload() {
+        let devices = vec![
+            ordered_summary("first", Some(0)),
+            ordered_summary("second", Some(1)),
+        ];
+        let list_response = protocol::ResponseData::Devices {
+            devices: devices.clone(),
+        };
+        let event = device_metadata_event(devices);
+
+        let protocol::ResponseData::Devices { devices } = list_response else {
+            panic!("expected a device list response");
+        };
+        let protocol::AgentEvent::DeviceMetadataChanged {
+            devices: event_devices,
+        } = event
+        else {
+            panic!("expected a metadata event");
+        };
+        assert_eq!(event_devices, devices);
     }
 
     #[test]

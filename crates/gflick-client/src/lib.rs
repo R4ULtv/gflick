@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn reads_one_bounded_message() {
-        let input = b"{\"message\":\"response\",\"id\":1,\"protocol_version\":1,\"result\":{\"status\":\"success\",\"data\":{\"type\":\"pong\"}}}\r\n";
+        let input = b"{\"message\":\"response\",\"id\":1,\"protocol_version\":2,\"result\":{\"status\":\"success\",\"data\":{\"type\":\"pong\"}}}\r\n";
         let message = read_message(&mut BufReader::new(&input[..]))
             .unwrap()
             .unwrap();
@@ -195,5 +195,18 @@ mod tests {
             message: "missing".to_owned(),
         });
         assert!(result.unwrap_err().to_string().contains("DeviceNotFound"));
+    }
+
+    #[test]
+    fn rejects_a_previous_protocol_version() {
+        let error = validate_protocol_version(PROTOCOL_VERSION - 1).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "agent protocol version {} is incompatible with client version {}",
+                PROTOCOL_VERSION - 1,
+                PROTOCOL_VERSION
+            )
+        );
     }
 }

@@ -170,6 +170,9 @@ fn event_human(event: &AgentEvent) -> String {
         AgentEvent::SettingsChanged { device } => {
             format!("Settings changed: {}", device_name(&device.device))
         }
+        AgentEvent::DeviceMetadataChanged { devices } => {
+            format!("Device metadata changed: {} device(s)", devices.len())
+        }
         AgentEvent::DeviceDisconnected { device_id } => format!("Device disconnected: {device_id}"),
         AgentEvent::BatteryChanged { device_id, battery } => match battery {
             Some(battery) => format!("Battery changed: {device_id} ({}%)", battery.percentage),
@@ -308,6 +311,9 @@ mod tests {
             AgentEvent::SettingsChanged {
                 device: Box::new(state()),
             },
+            AgentEvent::DeviceMetadataChanged {
+                devices: vec![summary()],
+            },
             AgentEvent::DeviceDisconnected {
                 device_id: "mouse-1".to_owned(),
             },
@@ -333,6 +339,25 @@ mod tests {
             write_event(&mut human, OutputFormat::Human, &event).unwrap();
             assert!(!human.is_empty());
         }
+    }
+
+    #[test]
+    fn metadata_event_has_compact_human_and_canonical_json_output() {
+        let event = AgentEvent::DeviceMetadataChanged {
+            devices: vec![summary()],
+        };
+        let mut human = Vec::new();
+        write_event(&mut human, OutputFormat::Human, &event).unwrap();
+        assert_eq!(
+            String::from_utf8(human).unwrap(),
+            "Device metadata changed: 1 device(s)\n"
+        );
+
+        let mut json = Vec::new();
+        write_event(&mut json, OutputFormat::Json, &event).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&json).unwrap();
+        assert_eq!(json["event"], "device_metadata_changed");
+        assert_eq!(json["devices"][0]["id"], "mouse-1");
     }
 
     fn state() -> DeviceState {

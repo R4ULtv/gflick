@@ -60,6 +60,7 @@ impl TrayState {
             AgentEvent::DeviceReady { device } | AgentEvent::SettingsChanged { device } => {
                 self.replace_or_append(DeviceView::from_state(*device));
             }
+            AgentEvent::DeviceMetadataChanged { devices } => self.merge_metadata(devices),
             AgentEvent::DeviceUnavailable {
                 device_id, reason, ..
             } => {
@@ -150,6 +151,34 @@ impl TrayState {
         } else {
             self.devices.push(device);
         }
+    }
+
+    /// Replaces the authoritative ordered summaries while retaining any live
+    /// session state that metadata events intentionally do not contain.
+    fn merge_metadata(&mut self, summaries: Vec<DeviceSummary>) {
+        let mut existing = std::mem::take(&mut self.devices);
+        self.devices = summaries
+            .into_iter()
+            .map(|summary| {
+                if let Some(index) = existing
+                    .iter()
+                    .position(|device| device.summary.id == summary.id)
+                {
+                    let device = existing.remove(index);
+                    DeviceView {
+                        summary,
+                        settings: device.settings,
+                        unavailable_reason: device.unavailable_reason,
+                    }
+                } else {
+                    DeviceView {
+                        unavailable_reason: availability_reason(&summary),
+                        summary,
+                        settings: None,
+                    }
+                }
+            })
+            .collect();
     }
 }
 
@@ -456,6 +485,106 @@ mod tests {
 
         assert!(tray.tooltip().contains("First"));
         assert_eq!(tray.title(), "91% · 1200 DPI");
+    }
+
+    #[test]
+    fn metadata_rename_preserves_live_battery_and_dpi() {
+        let state = sample_state();
+        let mut renamed = state.device.clone();
+        renamed.nickname = Some("Desk mouse".to_owned());
+        let mut tray = TrayState::default();
+        tray.replace(vec![(state.device.clone(), Some(state))]);
+
+        tray.apply(AgentEvent::DeviceMetadataChanged {
+            devices: vec![renamed],
+        });
+
+        assert_eq!(tray.statuses()[0].name, "Desk mouse");
+        assert_eq!(tray.title(), "84% · 800 DPI");
+        assert!(tray.tooltip().contains("Battery: 84%"));
+    }
+
+    #[test]
+    fn metadata_reorder_changes_the_ready_device_priority() {
+        let mut first = sample_state();
+        first.device.id = "mouse-first".to_owned();
+        first.device.nickname = Some("First".to_owned());
+        first
+            .settings
+            .battery
+            .as_mut()
+            .expect("sample battery")
+            .percentage = 91;
+        first.settings.dpi.as_mut().expect("sample DPI").current_x = 1_200;
+        let mut second = sample_state();
+        second.device.id = "mouse-second".to_owned();
+        second.device.nickname = Some("Second".to_owned());
+        second
+            .settings
+            .battery
+            .as_mut()
+            .expect("sample battery")
+            .percentage = 42;
+        second.settings.dpi.as_mut().expect("sample DPI").current_x = 400;
+        let mut tray = TrayState::default();
+        tray.replace(vec![
+            (first.device.clone(), Some(first.clone())),
+            (second.device.clone(), Some(second.clone())),
+        ]);
+
+        tray.apply(AgentEvent::DeviceMetadataChanged {
+            devices: vec![second.device, first.device],
+        });
+
+        assert_eq!(status_names(&tray), ["Second", "First"]);
+        assert_eq!(tray.title(), "42% · 400 DPI");
+        assert!(tray.tooltip().contains("Second"));
+    }
+
+    #[test]
+    fn metadata_rename_updates_an_offline_mouse_without_marking_it_connecting() {
+        let state = sample_state();
+        let mut offline = state.device;
+        offline.ready = false;
+        offline.availability = Some(DeviceAvailability::Unavailable {
+            reason: gflick_protocol::DeviceUnavailableReason::NotResponding,
+            detail: "mouse is asleep".to_owned(),
+        });
+        let mut renamed = offline.clone();
+        renamed.nickname = Some("Desk mouse".to_owned());
+        let mut tray = TrayState::default();
+        tray.replace(vec![(offline, None)]);
+
+        tray.apply(AgentEvent::DeviceMetadataChanged {
+            devices: vec![renamed],
+        });
+
+        assert_eq!(tray.statuses()[0].name, "Desk mouse");
+        assert_eq!(
+            tray.statuses()[0].status.as_deref(),
+            Some("mouse is asleep")
+        );
+    }
+
+    #[test]
+    fn metadata_snapshot_removes_devices_that_are_no_longer_present() {
+        let mut first = sample_state();
+        first.device.id = "mouse-first".to_owned();
+        first.device.nickname = Some("First".to_owned());
+        let mut second = sample_state();
+        second.device.id = "mouse-second".to_owned();
+        second.device.nickname = Some("Second".to_owned());
+        let mut tray = TrayState::default();
+        tray.replace(vec![
+            (first.device.clone(), Some(first)),
+            (second.device.clone(), Some(second.clone())),
+        ]);
+
+        tray.apply(AgentEvent::DeviceMetadataChanged {
+            devices: vec![second.device],
+        });
+
+        assert_eq!(status_names(&tray), ["Second"]);
     }
 
     #[test]

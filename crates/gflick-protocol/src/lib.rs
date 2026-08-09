@@ -2,8 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u16 = 1;
-pub const LOCAL_SOCKET_NAME: &str = "gflick-agent-v1.sock";
+pub const PROTOCOL_VERSION: u16 = 2;
+pub const LOCAL_SOCKET_NAME: &str = "gflick-agent-v2.sock";
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -229,6 +229,10 @@ pub enum AgentEvent {
     },
     SettingsChanged {
         device: Box<DeviceState>,
+    },
+    /// Authoritative, host-side presentation metadata in display order.
+    DeviceMetadataChanged {
+        devices: Vec<DeviceSummary>,
     },
     DeviceDisconnected {
         device_id: String,
@@ -484,6 +488,42 @@ mod tests {
             message
         );
         assert!(json.contains("\"message\":\"event\""));
+    }
+
+    #[test]
+    fn metadata_event_round_trip_preserves_the_exact_tag_and_order() {
+        let first = DeviceSummary {
+            id: "first".to_owned(),
+            hardware_id: Some("hardware-first".to_owned()),
+            vendor_id: 0x046d,
+            product_id: 0xc54d,
+            product_name: Some("Receiver".to_owned()),
+            display_name: Some("First mouse".to_owned()),
+            serial_number: None,
+            nickname: Some("Desk".to_owned()),
+            sort_order: Some(0),
+            connection: DeviceConnection::Receiver,
+            device_index: 1,
+            availability: Some(DeviceAvailability::Ready),
+            ready: true,
+        };
+        let mut second = first.clone();
+        second.id = "second".to_owned();
+        second.hardware_id = Some("hardware-second".to_owned());
+        second.sort_order = Some(1);
+
+        let message = ServerMessage::event(AgentEvent::DeviceMetadataChanged {
+            devices: vec![first, second],
+        });
+        let json = serde_json::to_string(&message).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["event"], "device_metadata_changed");
+        assert_eq!(value["devices"][0]["id"], "first");
+        assert_eq!(value["devices"][1]["id"], "second");
+        assert_eq!(
+            serde_json::from_str::<ServerMessage>(&json).unwrap(),
+            message
+        );
     }
 
     #[test]
