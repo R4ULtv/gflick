@@ -33,7 +33,9 @@ use gpui_kit::{
     SvgSize, Window, WindowBounds, WindowOptions, actions, div, prelude::*, px, rgb, rgba, size,
 };
 use icons::IconName;
-use theme::{ACCENT, BG, DANGER, DEEP, LINE, LINE_STRONG, MUTED, MUTED_2, SUCCESS, SURFACE, TEXT};
+use theme::{
+    ACCENT, BG, DANGER, DEEP, LINE, LINE_STRONG, MUTED, MUTED_2, SUCCESS, SURFACE, SURFACE_3, TEXT,
+};
 
 /// Width of the device list. The content pages need it to know their own.
 const SIDEBAR_WIDTH: Pixels = px(272.0);
@@ -879,12 +881,16 @@ impl SettingsView {
                 .flex()
                 .items_center()
                 .gap_4()
-                .px(px(22.0))
-                .when(compact, |el| el.flex_wrap().py_2())
-                .when(!compact, |el| el.h(px(66.0)))
+                .px(px(28.0))
+                .py_2()
+                // One row, at one height, whatever the window is doing: the
+                // pages and the actions belong on the same line. Wrapping is
+                // only the last resort, for a window too narrow to hold both.
+                .min_h(px(58.0))
+                .flex_wrap()
                 .border_b_1()
                 .border_color(rgb(LINE))
-                .child(self.render_tabs(compact, cx))
+                .child(self.render_tabs(cx))
                 .child(div().flex_1())
                 .child(self.render_actions(cx))
         });
@@ -917,46 +923,56 @@ impl SettingsView {
             .child(div().flex_1().min_h_0().child(body))
     }
 
-    /// Custom tabs whose active underline shares the top bar's existing rule.
+    /// The device's pages, as one segmented group.
+    ///
+    /// The same control the polling card uses for wired/wireless, because this
+    /// is the same kind of choice: two views of one device, not two
+    /// destinations. An underline had to be held a bar's height away from its
+    /// own label to sit on the rule; a group carries the selection on the word.
     ///
     /// The preferences page has none: the tabs are a device's pages, and it is
     /// not one. Picking a device in the sidebar is the way back to them.
-    fn render_tabs(&self, compact: bool, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
         if self.page == Page::Preferences {
             return div().into_any_element();
         }
         let tabs = [
-            (Page::Performance, "Performance"),
-            (Page::Details, "Device details"),
+            (Page::Performance, "Performance", IconName::Gauge),
+            (Page::Details, "Device details", IconName::IdCard),
         ]
         .into_iter()
-        .map(|(page, label)| {
+        .map(|(page, label, icon)| {
             let active = self.page == page;
             div()
                 .id(label)
-                .h_full()
                 .flex()
                 .items_center()
-                .px(px(14.0))
-                // Carried by every tab so switching cannot shift the text.
-                .border_b_2()
-                .border_color(if active { rgb(ACCENT) } else { rgba(0) })
-                .text_size(theme::text::BODY)
+                .gap(px(6.0))
+                .px(px(11.0))
+                .py(px(6.0))
+                .rounded(px(6.0))
+                .text_size(theme::text::SMALL)
                 .font_semibold()
-                .text_color(rgb(if active { TEXT } else { MUTED }))
                 .cursor_pointer()
-                .when(!active, |el| el.hover(|style| style.text_color(rgb(TEXT))))
+                .when(active, |el| el.bg(rgb(SURFACE_3)).text_color(rgb(TEXT)))
+                .when(!active, |el| {
+                    el.text_color(rgb(MUTED_2))
+                        .hover(|style| style.bg(rgb(SURFACE)).text_color(rgb(TEXT)))
+                })
                 .on_click(cx.listener(move |view, _, _, cx| {
                     view.page = page;
                     cx.notify();
                 }))
+                .child(Icon::new(icon).with_size(px(14.0)))
                 .child(label)
         });
         div()
             .flex()
             .flex_shrink_0()
-            .when(compact, |el| el.w_full().h(px(46.0)))
-            .when(!compact, |el| el.h_full())
+            .gap(px(2.0))
+            .p(px(3.0))
+            .rounded_lg()
+            .bg(rgb(DEEP))
             .children(tabs)
             .into_any_element()
     }

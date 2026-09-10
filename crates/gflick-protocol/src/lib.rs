@@ -95,13 +95,23 @@ pub enum RequestCommand {
 }
 
 /// Host application preferences stored by the agent alongside mouse settings.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppPreferences {
     pub confirm_apply: bool,
     pub confirm_discard: bool,
     pub confirm_profile_writes: bool,
     pub startup_defaults_applied: bool,
+}
+impl Default for AppPreferences {
+    fn default() -> Self {
+        Self {
+            confirm_apply: true,
+            confirm_discard: false,
+            confirm_profile_writes: true,
+            startup_defaults_applied: false,
+        }
+    }
 }
 impl AppPreferences {
     pub fn needs_confirmation(&self, discard: bool, profile_write: bool) -> bool {
@@ -528,6 +538,25 @@ pub struct BunnyHoppingState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn confirmation_defaults_preserve_explicit_saved_choices() {
+        let defaults = AppPreferences::default();
+        assert!(defaults.confirm_apply);
+        assert!(defaults.confirm_profile_writes);
+        assert!(!defaults.confirm_discard);
+        assert_eq!(
+            serde_json::from_str::<AppPreferences>("{}").unwrap(),
+            defaults
+        );
+        let saved: AppPreferences = serde_json::from_str(
+            r#"{"confirm_apply":false,"confirm_profile_writes":false,"confirm_discard":true}"#,
+        )
+        .unwrap();
+        assert!(!saved.confirm_apply);
+        assert!(!saved.confirm_profile_writes);
+        assert!(saved.confirm_discard);
+    }
 
     #[test]
     fn catalog_keeps_model_colors_and_swatches_separate() {

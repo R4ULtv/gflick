@@ -317,7 +317,12 @@ impl SettingsView {
                           checked: bool,
                           key: Preference| {
             ui::setting_row()
-                .child(ui::row_copy(label, help, false))
+                .child(ui::row_copy_badge(
+                    label,
+                    help,
+                    false,
+                    matches!(key, Preference::Profiles).then(|| ui::chip_accent("RECOMMENDED")),
+                ))
                 .child(
                     div()
                         .flex_shrink_0()

@@ -195,6 +195,15 @@ pub fn setting_row() -> Div {
 
 /// Setting label/help text; `pending` marks an unapplied edit.
 pub fn row_copy(label: impl Into<SharedString>, help: &str, pending: bool) -> Div {
+    row_copy_badge(label, help, pending, None)
+}
+
+pub fn row_copy_badge(
+    label: impl Into<SharedString>,
+    help: &str,
+    pending: bool,
+    badge: Option<Div>,
+) -> Div {
     div()
         .min_w_0()
         .flex_1()
@@ -210,6 +219,7 @@ pub fn row_copy(label: impl Into<SharedString>, help: &str, pending: bool) -> Di
                 .font_semibold()
                 .text_color(rgb(TEXT))
                 .child(label.into())
+                .children(badge)
                 .when(pending, |el| el.child(dot(ACCENT_TEXT))),
         )
         .when(!help.is_empty(), |el| {
