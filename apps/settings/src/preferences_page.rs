@@ -351,32 +351,7 @@ impl SettingsView {
                        state: Option<bool>,
                        on_click: SwitchAction| {
             ui::setting_row()
-                .child(
-                    div()
-                        .min_w_0()
-                        .flex_1()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .text_size(theme::text::BODY)
-                                .font_semibold()
-                                .text_color(rgb(TEXT))
-                                .child(label)
-                                .children(tag),
-                        )
-                        .child(
-                            div()
-                                .max_w(px(420.0))
-                                .text_size(theme::text::TINY)
-                                .text_color(rgb(MUTED_2))
-                                .child(help),
-                        ),
-                )
+                .child(ui::row_copy_badge(label, help, false, tag))
                 .child(
                     div()
                         .flex()

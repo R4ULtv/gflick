@@ -225,7 +225,11 @@ pub fn row_copy_badge(
         .when(!help.is_empty(), |el| {
             el.child(
                 div()
-                    .max_w(px(420.0))
+                    // Wide enough for a sentence of help to stay on one line,
+                    // short of the measure where the eye loses its place. The
+                    // column is flex, so a row with a wide control takes this
+                    // back rather than crowding it.
+                    .max_w(px(640.0))
                     .text_size(text::TINY)
                     .text_color(rgb(MUTED_2))
                     .child(help.to_owned()),
