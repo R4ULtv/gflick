@@ -641,7 +641,7 @@ impl Editor {
             .children(segments)
     }
 
-    /// The rates themselves: the number, and the unit under it.
+    /// The rates themselves: the number, and the unit on the same line.
     fn render_rates(&self, spec: &Spec, value: &str, cx: &mut Context<Self>) -> impl IntoElement {
         let key = spec.key;
         let buttons = spec.choices.iter().map(|(choice, label)| {
@@ -656,17 +656,19 @@ impl Editor {
                         button.outline()
                     }
                 })
-                .w(px(82.0))
-                .h(px(48.0))
+                .w(px(76.0))
+                .h(px(38.0))
                 .rounded(px(8.0))
                 .disabled(self.busy)
                 .accessibility_label(label.clone())
                 .child(
                     div()
                         .flex()
-                        .flex_col()
-                        .items_center()
-                        .gap(px(1.0))
+                        // The unit sits on the number's baseline rather than
+                        // centred on it, the way a unit is set next to a figure.
+                        .items_baseline()
+                        .justify_center()
+                        .gap(px(3.0))
                         .child(
                             div()
                                 .text_size(text::BODY)
