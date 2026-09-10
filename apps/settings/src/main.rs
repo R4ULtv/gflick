@@ -5,6 +5,7 @@ mod editor;
 mod filter;
 mod history;
 mod icons;
+mod live;
 mod preferences;
 use preferences::PreferenceStore as _;
 mod preferences_page;
@@ -32,10 +33,7 @@ use gpui_kit::{
     SvgSize, Window, WindowBounds, WindowOptions, actions, div, prelude::*, px, rgb, rgba, size,
 };
 use icons::IconName;
-use theme::{
-    ACCENT, BG, DANGER, DEEP, LINE, LINE_STRONG, MUTED, MUTED_2, SUCCESS, SURFACE,
-    TEXT,
-};
+use theme::{ACCENT, BG, DANGER, DEEP, LINE, LINE_STRONG, MUTED, MUTED_2, SUCCESS, SURFACE, TEXT};
 
 /// Width of the device list. The content pages need it to know their own.
 const SIDEBAR_WIDTH: Pixels = px(272.0);
@@ -70,6 +68,9 @@ struct SettingsView {
     service_busy: bool,
     tray_enabled: Option<bool>,
     disconnected: std::collections::BTreeSet<String>,
+    live_task: Option<gpui_kit::Task<()>>,
+    pending_live: Vec<live::Update>,
+    refreshing: bool,
     editors: std::collections::BTreeMap<String, Entity<editor::Editor>>,
     subscriptions: Vec<gpui_kit::Subscription>,
     logo: Option<std::sync::Arc<RenderImage>>,
@@ -243,6 +244,9 @@ impl SettingsView {
             service_busy: false,
             tray_enabled: None,
             disconnected: Default::default(),
+            live_task: None,
+            pending_live: Vec::new(),
+            refreshing: false,
             editors: Default::default(),
             subscriptions: Vec::new(),
             logo: None,
@@ -257,9 +261,88 @@ impl SettingsView {
             drop_hint: None,
             show_fps: std::env::var_os(FPS_ENV).is_some_and(|value| !value.is_empty()),
         };
-        view.refresh(cx);
+        view.start_live(cx);
         view.apply_startup_defaults(cx);
         view
+    }
+
+    fn start_live(&mut self, cx: &mut Context<Self>) {
+        self.loading = true;
+        let (updates, listener) = live::subscribe();
+        self.live_task = Some(cx.spawn(async move |view: gpui_kit::WeakEntity<Self>, cx| {
+            let _listener = listener;
+            while let Ok(update) = updates.recv().await {
+                if view
+                    .update(cx, |view, cx| view.handle_live(update, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }));
+    }
+
+    fn handle_live(&mut self, update: live::Update, cx: &mut Context<Self>) {
+        if self.refreshing {
+            self.pending_live.push(update);
+            return;
+        }
+        match update {
+            live::Update::Snapshot(snapshot) => {
+                self.adopt(snapshot);
+                self.loading = false;
+                self.error = None;
+                self.agent_online = Some(true);
+            }
+            live::Update::Offline(message) => {
+                self.agent_online = Some(false);
+                self.loading = false;
+                self.error = Some(format!("Agent disconnected. Reconnecting… {message}"));
+            }
+            live::Update::Event(gflick_protocol::AgentEvent::ApplicationShuttingDown) => {
+                self.agent_online = Some(false);
+                self.loading = false;
+                self.error = Some("Agent stopped. Reconnecting…".into());
+            }
+            live::Update::Event(event) => {
+                live::apply(
+                    &mut self.devices,
+                    &mut self.states,
+                    &mut self.disconnected,
+                    event,
+                );
+            }
+        }
+        // Drafts belong to hardware identities, not transient USB routing IDs.
+        for device in &self.devices {
+            if !self.editors.contains_key(&device.id) && device.hardware_id.is_some() {
+                let previous = self
+                    .editors
+                    .iter()
+                    .find(|(_, editor)| {
+                        editor.read(cx).baseline.device.hardware_id == device.hardware_id
+                    })
+                    .map(|(id, _)| id.clone());
+                if let Some(previous) = previous {
+                    let editor = self.editors.remove(&previous).unwrap();
+                    editor.update(cx, |editor, _| {
+                        editor.baseline.device.id = device.id.clone()
+                    });
+                    if self.selected_id.as_ref() == Some(&previous) {
+                        self.selected_id = Some(device.id.clone());
+                    }
+                    self.editors.insert(device.id.clone(), editor);
+                }
+            }
+        }
+        if self
+            .selected_id
+            .as_ref()
+            .is_none_or(|id| !self.devices.iter().any(|d| &d.id == id))
+        {
+            self.selected_id = self.devices.first().map(|d| d.id.clone());
+        }
+        cx.notify();
     }
 
     /// Rasterize the logo at its display size to avoid downsampling aliases.
@@ -288,6 +371,7 @@ impl SettingsView {
         }
 
         self.loading = true;
+        self.refreshing = true;
         self.error = None;
         cx.notify();
 
@@ -298,9 +382,13 @@ impl SettingsView {
             let result = load.await;
             view.update(cx, |view, cx| {
                 view.loading = false;
+                view.refreshing = false;
                 match result {
                     Ok(snapshot) => view.adopt(snapshot),
                     Err(error) => view.error = Some(format!("{error:#}")),
+                }
+                for update in std::mem::take(&mut view.pending_live) {
+                    view.handle_live(update, cx);
                 }
                 cx.notify();
             })?;
@@ -898,6 +986,10 @@ impl SettingsView {
                         Button::new("discard")
                             .outline()
                             .compact()
+                            // An undo arrow rather than a cross: the edits are
+                            // rolled back to what the mouse already holds, not
+                            // dismissed.
+                            .icon(IconName::Undo2)
                             .accessibility_label("Discard")
                             .child(ui::button_label("Discard", theme::text::BODY))
                             .disabled(busy || dirty == 0)
@@ -1191,7 +1283,7 @@ impl SettingsView {
     fn render_unavailable(&self, device: &DeviceSummary) -> impl IntoElement {
         let disconnected = self.disconnected.contains(&device.id);
         let detail = if disconnected {
-            "USB disconnected. Reconnect the mouse or its receiver, then refresh."
+            "USB disconnected. Reconnect the mouse or its receiver; it will appear online automatically."
         } else {
             match device.availability.as_ref() {
                 Some(DeviceAvailability::Initializing) => "The agent is reading this device.",

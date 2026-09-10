@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+async-channel = "2"
 gflick-client.workspace = true
 gflick-protocol.workspace = true
 # GPUI, GPUI Platform and GPUI Component in one released crate, so the UI no

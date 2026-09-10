@@ -10,6 +10,7 @@ use gflick_protocol::{
     AgentEvent, ClientRequest, LOCAL_SOCKET_NAME, MAX_MESSAGE_BYTES, PROTOCOL_VERSION,
     RequestCommand, ResponseData, ResponseResult, ServerMessage,
 };
+use interprocess::TryClone as _;
 use interprocess::local_socket::{GenericFilePath, GenericNamespaced, Stream, prelude::*};
 
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
@@ -46,14 +47,35 @@ pub struct EventSubscription {
     reader: BufReader<Stream>,
 }
 
+/// Cancels a blocked receiver without waiting for another battery event.
+pub struct SubscriptionCancellation(Stream);
+impl SubscriptionCancellation {
+    pub fn cancel(self) {
+        let _ = (&self.0).write_all(b"\n");
+    }
+}
+
 impl EventSubscription {
     /// Connects and verifies the subscription acknowledgement.
     pub fn connect() -> Result<Self> {
+        Self::connect_with(RequestCommand::Subscribe)
+    }
+
+    /// Faster shared battery polling until this settings subscription closes.
+    pub fn connect_settings() -> Result<Self> {
+        Self::connect_with(RequestCommand::SubscribeSettings)
+    }
+
+    pub fn cancellation_handle(&self) -> Result<SubscriptionCancellation> {
+        Ok(SubscriptionCancellation(self.reader.get_ref().try_clone()?))
+    }
+
+    fn connect_with(command: RequestCommand) -> Result<Self> {
         let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
         let request = ClientRequest {
             id: request_id,
             protocol_version: PROTOCOL_VERSION,
-            command: RequestCommand::Subscribe,
+            command,
         };
         let stream = connect().context("could not connect to the GFlick agent")?;
         write_message(&stream, &request)?;

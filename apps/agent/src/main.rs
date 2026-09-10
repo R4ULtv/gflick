@@ -27,8 +27,8 @@ struct Cli {
     #[arg(long, default_value_t = 5)]
     scan_interval_seconds: u64,
 
-    /// Seconds between battery queries for each open mouse.
-    #[arg(long, default_value_t = 300)]
+    /// Seconds between battery queries, including charging status, for each open mouse.
+    #[arg(long, default_value_t = 30)]
     battery_interval_seconds: u64,
 
     /// Override the per-user JSON settings file path.
@@ -94,6 +94,17 @@ impl UnavailableDevice {
     }
 }
 
+fn reschedule_battery_check(
+    deadline: std::time::Instant,
+    previous: Duration,
+    next: Duration,
+) -> std::time::Instant {
+    deadline
+        .checked_sub(previous)
+        .unwrap_or_else(std::time::Instant::now)
+        + next
+}
+
 struct Agent {
     manager: core::DeviceManager,
     active: BTreeMap<String, ActiveMouse>,
@@ -117,6 +128,20 @@ impl Agent {
             settings: store::SettingsStore::load(settings_path)?,
             restore_preferences,
         })
+    }
+
+    fn set_battery_interval(&mut self, interval: Duration) {
+        if interval == self.battery_interval {
+            return;
+        }
+        for active in self.active.values_mut() {
+            active.battery_check_after = reschedule_battery_check(
+                active.battery_check_after,
+                self.battery_interval,
+                interval,
+            );
+        }
+        self.battery_interval = interval;
     }
 
     fn prepare_mouse(
@@ -478,7 +503,9 @@ impl Agent {
                 devices: self.device_summaries(),
             }),
             RequestCommand::GetDevice { device_id } => self.device_response(&device_id),
-            RequestCommand::Subscribe => Ok(protocol::ResponseData::Subscribed),
+            RequestCommand::Subscribe | RequestCommand::SubscribeSettings => {
+                Ok(protocol::ResponseData::Subscribed)
+            }
             RequestCommand::SetDeviceColor { device_id, color } => {
                 self.set_color(&device_id, color)
             }
@@ -964,6 +991,7 @@ fn update_preferences(
         | protocol::RequestCommand::SetAppPreferences { .. }
         | protocol::RequestCommand::GetDevice { .. }
         | protocol::RequestCommand::Subscribe
+        | protocol::RequestCommand::SubscribeSettings
         | protocol::RequestCommand::SetDeviceColor { .. }
         | protocol::RequestCommand::SetDeviceNickname { .. }
         | protocol::RequestCommand::ReorderDevices { .. } => {}
@@ -1248,6 +1276,7 @@ fn command_device_id(command: &protocol::RequestCommand) -> Option<&str> {
         | RequestCommand::GetAppPreferences
         | RequestCommand::SetAppPreferences { .. }
         | RequestCommand::Subscribe
+        | RequestCommand::SubscribeSettings
         // Host-side metadata: deliberately exempt from the device-ready guard so a
         // device can be renamed while it is still initializing.
         | RequestCommand::SetDeviceColor { .. }
@@ -1278,6 +1307,7 @@ fn command_changes_settings(command: &protocol::RequestCommand) -> bool {
         | protocol::RequestCommand::SetAppPreferences { .. }
             | protocol::RequestCommand::GetDevice { .. }
             | protocol::RequestCommand::Subscribe
+        | protocol::RequestCommand::SubscribeSettings
             // These persist host-side metadata themselves and return no snapshot.
             | protocol::RequestCommand::SetDeviceColor { .. }
             | protocol::RequestCommand::SetDeviceNickname { .. }
@@ -1747,9 +1777,12 @@ fn main() -> Result<()> {
         "GFlick agent started; IPC protocol v{} is ready.",
         protocol::PROTOCOL_VERSION
     );
+    let background_battery_interval = agent.battery_interval;
     let mut next_scan = std::time::Instant::now();
     'run: while !shutdown.load(Ordering::Acquire) {
         let now = std::time::Instant::now();
+        agent.set_battery_interval(ipc.battery_interval(background_battery_interval));
+        next_scan = next_scan.min(now + agent.battery_interval);
         if now >= next_scan {
             match agent.tick() {
                 Ok(events) => {
@@ -1759,7 +1792,7 @@ fn main() -> Result<()> {
                 }
                 Err(error) => eprintln!("Discovery pass failed: {error:#}"),
             }
-            next_scan = std::time::Instant::now() + scan_interval;
+            next_scan = std::time::Instant::now() + scan_interval.min(agent.battery_interval);
         }
 
         while let Some(pending) = ipc.try_recv()? {
@@ -1830,6 +1863,19 @@ mod tests {
         preferences.nickname = Some("Desk mouse".to_owned());
         preferences.sort_order = Some(2);
         preferences.cached_model_name = Some("PRO X Superlight 2".to_owned());
+    }
+
+    #[test]
+    fn changing_battery_cadence_reschedules_from_the_last_check() {
+        let last = std::time::Instant::now();
+        let background = Duration::from_secs(30);
+        let foreground = Duration::from_secs(5);
+        let fast = reschedule_battery_check(last + background, background, foreground);
+        assert_eq!(fast, last + foreground);
+        assert_eq!(
+            reschedule_battery_check(fast, foreground, background),
+            last + background
+        );
     }
 
     #[test]

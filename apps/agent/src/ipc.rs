@@ -49,6 +49,7 @@ pub struct PendingRequest {
 
 /// Keyed so a disconnecting client can remove its own slot.
 struct Subscriber {
+    foreground: bool,
     id: u64,
     events: mpsc::Sender<AgentEvent>,
 }
@@ -71,11 +72,17 @@ struct SubscriberRegistration {
 }
 
 impl SubscriberRegistration {
-    fn new(subscribers: Subscribers, subscriber_id: u64, events: mpsc::Sender<AgentEvent>) -> Self {
+    fn new(
+        subscribers: Subscribers,
+        subscriber_id: u64,
+        events: mpsc::Sender<AgentEvent>,
+        foreground: bool,
+    ) -> Self {
         subscribers
             .lock()
             .expect("IPC subscriber mutex poisoned")
             .push(Subscriber {
+                foreground,
                 id: subscriber_id,
                 events,
             });
@@ -117,6 +124,20 @@ pub struct IpcHandle {
 }
 
 impl IpcHandle {
+    pub fn battery_interval(&self, background: Duration) -> Duration {
+        if self
+            .subscribers
+            .lock()
+            .expect("IPC subscriber mutex poisoned")
+            .iter()
+            .any(|s| s.foreground)
+        {
+            background.min(Duration::from_secs(5))
+        } else {
+            background
+        }
+    }
+
     pub fn try_recv(&self) -> Result<Option<PendingRequest>> {
         match self.requests.try_recv() {
             Ok(request) => Ok(Some(request)),
@@ -301,11 +322,18 @@ fn handle_client(
             continue;
         }
 
-        if matches!(request.command, RequestCommand::Subscribe) {
+        if matches!(
+            request.command,
+            RequestCommand::Subscribe | RequestCommand::SubscribeSettings
+        ) {
             let (event_tx, event_rx) = mpsc::channel();
             let subscriber_id = NEXT_SUBSCRIBER_ID.fetch_add(1, Ordering::Relaxed);
-            let registration =
-                SubscriberRegistration::new(Arc::clone(&subscribers), subscriber_id, event_tx);
+            let registration = SubscriberRegistration::new(
+                Arc::clone(&subscribers),
+                subscriber_id,
+                event_tx,
+                matches!(request.command, RequestCommand::SubscribeSettings),
+            );
             complete_subscription_registration(
                 registration,
                 || {
@@ -371,7 +399,7 @@ fn read_line_limited(reader: &mut impl BufRead) -> Result<Option<String>> {
         .map(Some)
 }
 
-/// Drops a subscriber once its read half reports EOF.
+/// Drops a subscriber on EOF or an explicit cancellation byte.
 ///
 /// A write probe is not an option: clients parse every line, so even a bare
 /// newline would be a parse error on a healthy connection.
@@ -389,8 +417,14 @@ fn spawn_hangup_watcher(
         .spawn(move || {
             let mut reader = &watched;
             let mut discard = [0_u8; 64];
-            // Subscribers send nothing; only the end of the stream matters.
-            while matches!(reader.read(&mut discard), Ok(1..)) {}
+            // EOF/crash or an explicit cancellation byte ends this subscription.
+            // Subscribers never send more commands on the event connection.
+            loop {
+                match reader.read(&mut discard) {
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                    _ => break,
+                }
+            }
             remove_subscriber(&subscribers, subscriber_id);
         })
         .with_context(|| format!("failed to watch subscription {subscriber_id} for disconnect"))?;
@@ -454,11 +488,101 @@ mod tests {
     }
 
     #[test]
+    fn fast_polling_lasts_until_the_last_settings_subscription_closes() {
+        let (_tx, requests) = mpsc::channel();
+        let subscribers: Subscribers = Arc::new(Mutex::new(Vec::new()));
+        let ipc = IpcHandle {
+            requests,
+            subscribers: subscribers.clone(),
+        };
+        let background = Duration::from_secs(30);
+        let (tray, _tray_events) = mpsc::channel();
+        let tray = SubscriberRegistration::new(subscribers.clone(), 1, tray, false);
+        assert_eq!(ipc.battery_interval(background), background);
+        let (first, _first_events) = mpsc::channel();
+        let first = SubscriberRegistration::new(subscribers.clone(), 2, first, true);
+        let (second, _second_events) = mpsc::channel();
+        let second = SubscriberRegistration::new(subscribers, 3, second, true);
+        assert_eq!(ipc.battery_interval(background), Duration::from_secs(5));
+        assert_eq!(
+            ipc.battery_interval(Duration::from_secs(2)),
+            Duration::from_secs(2)
+        );
+        drop(first);
+        assert_eq!(ipc.battery_interval(background), Duration::from_secs(5));
+        drop(second);
+        assert_eq!(ipc.battery_interval(background), background);
+        drop(tray);
+    }
+
+    #[test]
+    fn idle_settings_subscription_releases_fast_polling_on_cancel_or_eof() {
+        for explicit_cancel in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("subscription.sock");
+            let socket = path.to_string_lossy();
+            let name = if GenericNamespaced::is_supported() {
+                socket.as_ref().to_ns_name::<GenericNamespaced>().unwrap()
+            } else {
+                socket.as_ref().to_fs_name::<GenericFilePath>().unwrap()
+            };
+            let listener = ListenerOptions::new()
+                .name(name.clone())
+                .create_sync()
+                .unwrap();
+            let subscribers: Subscribers = Arc::new(Mutex::new(Vec::new()));
+            let (requests, request_rx) = mpsc::channel();
+            let ipc = IpcHandle {
+                requests: request_rx,
+                subscribers: subscribers.clone(),
+            };
+            let (finished, done) = mpsc::channel();
+            let server = thread::spawn(move || {
+                let stream = listener.accept().unwrap();
+                let result = handle_client(stream, requests, subscribers);
+                finished.send(result).unwrap();
+            });
+            let stream = Stream::connect(name).unwrap();
+            serde_json::to_writer(
+                &stream,
+                &ClientRequest {
+                    id: 1,
+                    protocol_version: PROTOCOL_VERSION,
+                    command: RequestCommand::SubscribeSettings,
+                },
+            )
+            .unwrap();
+            (&stream).write_all(b"\n").unwrap();
+            let mut ack = String::new();
+            BufReader::new(&stream).read_line(&mut ack).unwrap();
+            assert!(ack.contains("subscribed"));
+            assert_eq!(
+                ipc.battery_interval(Duration::from_secs(30)),
+                Duration::from_secs(5)
+            );
+            if explicit_cancel {
+                (&stream).write_all(b"\n").unwrap();
+                done.recv_timeout(Duration::from_secs(2)).unwrap().unwrap();
+                drop(stream);
+            } else {
+                drop(stream);
+                done.recv_timeout(Duration::from_secs(2)).unwrap().unwrap();
+            }
+            server.join().unwrap();
+            assert_eq!(
+                ipc.battery_interval(Duration::from_secs(30)),
+                Duration::from_secs(30)
+            );
+        }
+    }
+
+    #[test]
     fn dropping_a_subscriber_ends_its_parked_recv() {
         // Stands in for the watcher pruning its slot on EOF.
         let (event_tx, event_rx) = mpsc::channel();
         let subscribers: Subscribers = Arc::new(Mutex::new(Vec::new()));
-        let registration = SubscriberRegistration::new(Arc::clone(&subscribers), 7, event_tx);
+        let registration =
+            SubscriberRegistration::new(Arc::clone(&subscribers), 7, event_tx, false);
 
         remove_subscriber(&subscribers, 7);
         registration.disarm();
@@ -473,10 +597,12 @@ mod tests {
         let (second_tx, second_rx) = mpsc::channel();
         let subscribers: Subscribers = Arc::new(Mutex::new(vec![
             Subscriber {
+                foreground: false,
                 id: 1,
                 events: first_tx,
             },
             Subscriber {
+                foreground: false,
                 id: 2,
                 events: second_tx,
             },
@@ -501,10 +627,12 @@ mod tests {
         let (event_tx, event_rx) = mpsc::channel();
         let (survivor_tx, _survivor_rx) = mpsc::channel();
         let subscribers: Subscribers = Arc::new(Mutex::new(vec![Subscriber {
+            foreground: false,
             id: 8,
             events: survivor_tx,
         }]));
-        let registration = SubscriberRegistration::new(Arc::clone(&subscribers), 7, event_tx);
+        let registration =
+            SubscriberRegistration::new(Arc::clone(&subscribers), 7, event_tx, false);
 
         // Stands in for the watcher winning the race before setup rolls back.
         remove_subscriber(&subscribers, 7);
@@ -521,7 +649,8 @@ mod tests {
     fn acknowledgement_failure_rolls_back_subscription() {
         let (event_tx, event_rx) = mpsc::channel();
         let subscribers: Subscribers = Arc::new(Mutex::new(Vec::new()));
-        let registration = SubscriberRegistration::new(Arc::clone(&subscribers), 7, event_tx);
+        let registration =
+            SubscriberRegistration::new(Arc::clone(&subscribers), 7, event_tx, false);
 
         let error = complete_subscription_registration(
             registration,
@@ -539,7 +668,8 @@ mod tests {
     fn watcher_spawn_failure_rolls_back_subscription() {
         let (event_tx, event_rx) = mpsc::channel();
         let subscribers: Subscribers = Arc::new(Mutex::new(Vec::new()));
-        let registration = SubscriberRegistration::new(Arc::clone(&subscribers), 7, event_tx);
+        let registration =
+            SubscriberRegistration::new(Arc::clone(&subscribers), 7, event_tx, false);
 
         let error =
             complete_subscription_registration(registration, || Ok(()), || bail!("watcher failed"))

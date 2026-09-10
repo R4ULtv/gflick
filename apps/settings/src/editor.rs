@@ -73,6 +73,8 @@ impl Editor {
             .collect()
     }
     pub fn sync(&mut self, state: DeviceState, window: &mut Window, cx: &mut Context<Self>) {
+        // Telemetry must not rebuild inputs or steal focus, even during a draft.
+        self.baseline.settings.battery = state.settings.battery.clone();
         if self.busy || !self.dirty(cx).is_empty() || self.baseline == state {
             return;
         }

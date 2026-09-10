@@ -29,6 +29,8 @@ pub enum RequestCommand {
         device_id: String,
     },
     Subscribe,
+    /// Event subscription requesting foreground battery polling for its lifetime.
+    SubscribeSettings,
     SetDpi {
         device_id: String,
         dpi: u16,

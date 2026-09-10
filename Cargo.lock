@@ -2361,6 +2361,7 @@ name = "gflick-settings"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "async-channel",
  "directories",
  "gflick-client",
  "gflick-protocol",

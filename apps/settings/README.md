@@ -13,9 +13,19 @@ cargo run -p gflick-agent
 cargo run -p gflick-settings
 ```
 
-Use Refresh after connecting a mouse or starting the agent. No demo mode or 3D
-renderer is included. External changes and battery updates are retrieved with
-Refresh; a live event subscription is not yet implemented.
+Battery percentage, charging status, mouse availability, and USB connection
+changes update automatically through the same agent event stream used by the tray.
+The client reconnects when the agent restarts. The agent defaults to checking USB
+connections every 5 seconds. Battery/charging status is checked every 5 seconds
+while any Settings window is connected, returning to 30 seconds when the last
+window closes or crashes. A tray-only subscription uses the background interval.
+`--battery-interval-seconds` changes that background interval (for example, 60);
+`--scan-interval-seconds` controls discovery. No additional battery polling runs
+in the client. Restart both the agent and Settings to use adaptive polling.
+
+Use Refresh for external changes to DPI, polling, and other editable settings.
+A newly connected mouse gets an initial settings snapshot. Battery-only updates
+preserve drafts and input focus. No demo mode or 3D renderer is included.
 
 ## Editing
 
@@ -82,8 +92,8 @@ running to read or change preferences.
   identities come from the agent’s `settings.json` device entries, without a
   separate client history file.
   “Mouse offline · receiver connected” distinguishes a silent wireless mouse
-  from “USB disconnected.” Connection changes are verified on Refresh; loading
-  or failed reads keep rows visible with unverified status and no stale battery.
+  from “USB disconnected.” Connection changes update automatically; loading
+  or a lost agent connection keeps rows visible with unverified status and no stale battery.
 - Sidebar battery percentage and low-charge indicator; unknown charge shows a dash.
 - Performance and Device details tabs, with a stacked layout at narrower widths.
 - Website logo rendered at display resolution and package-derived app version.
