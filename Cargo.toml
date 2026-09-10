@@ -52,3 +52,11 @@ winresource = "0.1"
 # caller. build-override covers a build script and its dependencies together.
 [profile.dev.build-override]
 opt-level = 3
+
+# The window runs through those same dependencies unoptimized: gpui's layout,
+# text shaping and image decode are generic code that is only fast once inlined,
+# which is why a debug build drops frames a release build never notices.
+# Optimizing the dependencies while leaving this workspace at opt-level 0 keeps
+# rebuilds quick and the window smooth.
+[profile.dev.package."*"]
+opt-level = 3

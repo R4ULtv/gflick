@@ -873,9 +873,11 @@ impl SettingsView {
         } else {
             self.render_empty().into_any_element()
         };
-        // The preferences page has neither pages to switch between nor changes
-        // to apply, so it goes without the bar rather than under an empty one.
-        let bar = (self.page != Page::Preferences).then(|| {
+        // The bar is the device's pages and the changes to them, so it stands
+        // only where those exist: not over preferences, and not over a device
+        // that is loading, missing or offline, which has nothing to switch
+        // between and nothing to apply.
+        let bar = (self.page != Page::Preferences && self.selected_state().is_some()).then(|| {
             div()
                 .flex_shrink_0()
                 .flex()
@@ -1210,7 +1212,7 @@ impl SettingsView {
 
     /// The details page's right column: what the mouse is, not what it does.
     fn render_rail(&self, state: &DeviceState, width: Pixels) -> impl IntoElement {
-        let has_photo = preview::MouseModel::for_device(&state.device).is_some();
+        let model = preview::MouseModel::for_device(&state.device);
         let battery = state.settings.battery.as_ref();
         div()
             .w(width)
@@ -1226,8 +1228,17 @@ impl SettingsView {
                     .bg(rgb(SURFACE))
                     .overflow_hidden()
                     .pb_4()
-                    .when(has_photo, |el| el.child(self.preview.clone()))
-                    .when(!has_photo, |el| {
+                    .when_some(model, |el, model| {
+                        el.child(self.preview.clone()).child(
+                            div()
+                                .mt_2()
+                                .text_center()
+                                .text_size(theme::text::SMALL)
+                                .text_color(rgb(MUTED))
+                                .child(model.label()),
+                        )
+                    })
+                    .when(model.is_none(), |el| {
                         el.child(
                             div()
                                 .h(px(280.0))
@@ -1328,10 +1339,12 @@ impl SettingsView {
             .items_center()
             .justify_center()
             .gap_6()
-            .when(
-                self.page == Page::Details && preview::MouseModel::for_device(device).is_some(),
-                |el| el.child(div().w(px(320.0)).child(self.preview.clone())),
-            )
+            // The photo stands whichever page was open when the mouse went
+            // quiet: it is what the page is about, and there is nothing else
+            // here to look at.
+            .when(preview::MouseModel::for_device(device).is_some(), |el| {
+                el.child(div().w(px(320.0)).child(self.preview.clone()))
+            })
             .when(silent, |el| {
                 el.child(
                     Icon::new(if disconnected {

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use gflick_protocol::DeviceColor;
 use gpui_kit::{
-    Context, IntoElement, ObjectFit, Render, RenderImage, Window, div, img, prelude::*, px, rgb,
+    Context, IntoElement, ObjectFit, Render, RenderImage, Window, div, img, prelude::*, px,
 };
 
 /// A device photo, painted `logical_height` points tall, baked by `build.rs`
@@ -70,7 +70,7 @@ impl MouseModel {
             .find(|baked| baked.scale_factor >= scale_factor)
             .unwrap_or(&densities[densities.len() - 1])
     }
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Superlight => "PRO X SUPERLIGHT",
             Self::Superlight2 => "PRO X SUPERLIGHT 2",
@@ -122,33 +122,22 @@ impl Render for MousePreview {
     fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let logical_height = self.model.photo(self.color).logical_height;
         let photo = self.texture(window.scale_factor());
+        // Artwork only. The caption belongs to whoever shows the photo: the
+        // details card names the model under it, while a page whose heading is
+        // already the device's name would be saying it twice.
         div()
             .w_full()
+            .h(px(280.0))
+            .overflow_hidden()
             .flex()
-            .flex_col()
             .items_center()
+            .justify_center()
             .child(
-                div()
-                    .w_full()
-                    .h(px(280.0))
-                    .overflow_hidden()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        img(photo)
-                            .w(px(440.0))
-                            .h(px(logical_height))
-                            .flex_shrink_0()
-                            .object_fit(ObjectFit::Contain),
-                    ),
-            )
-            .child(
-                div()
-                    .mt_2()
-                    .text_size(crate::theme::text::SMALL)
-                    .text_color(rgb(crate::theme::MUTED))
-                    .child(self.model.label()),
+                img(photo)
+                    .w(px(440.0))
+                    .h(px(logical_height))
+                    .flex_shrink_0()
+                    .object_fit(ObjectFit::Contain),
             )
     }
 }
