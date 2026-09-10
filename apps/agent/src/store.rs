@@ -50,6 +50,10 @@ pub enum LightingPreference {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostPreferences {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dpi_y: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub button_mapping: Option<Vec<u8>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dpi: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub polling_rate: Option<PollingPreference>,
@@ -65,6 +69,8 @@ pub struct HostPreferences {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DevicePreferences {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub onboard_dpi_stage: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub control: Option<ControlPreference>,
     #[serde(default)]
@@ -494,8 +500,11 @@ mod tests {
 
     fn sample_preferences() -> DevicePreferences {
         DevicePreferences {
+            onboard_dpi_stage: Some(2),
             control: Some(ControlPreference::Host),
             host: HostPreferences {
+                dpi_y: Some(1600),
+                button_mapping: Some(vec![1, 2, 3, 5, 4]),
                 dpi: Some(800),
                 polling_rate: Some(PollingPreference::PerConnection {
                     wired_hz: 1000,

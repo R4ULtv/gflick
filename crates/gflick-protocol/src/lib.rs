@@ -31,6 +31,19 @@ pub enum RequestCommand {
     Subscribe,
     /// Event subscription requesting foreground battery polling for its lifetime.
     SubscribeSettings,
+    SetOnboardDpiStage {
+        device_id: String,
+        index: u8,
+    },
+    SetDpiAxes {
+        device_id: String,
+        x: u16,
+        y: u16,
+    },
+    SetMouseButtonMapping {
+        device_id: String,
+        mapping: Vec<u8>,
+    },
     SetDpi {
         device_id: String,
         dpi: u16,
@@ -487,6 +500,10 @@ pub struct OnboardProfileDescription {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SettingsState {
+    #[serde(default)]
+    pub onboard_dpi_stage: Option<u8>,
+    #[serde(default)]
+    pub mouse_button_mapping: Option<Vec<u8>>,
     pub battery: Option<BatteryState>,
     pub dpi: Option<DpiState>,
     pub polling_rate: PollingRateState,

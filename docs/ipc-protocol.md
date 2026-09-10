@@ -25,7 +25,8 @@ value is written per line, with a 64 KiB maximum message size.
 
 Supported read operations are `ping`, `list_devices`, and `get_device`. A device
 snapshot includes identity, readiness, advertised capabilities, battery, DPI, polling,
-configuration source, operating/surface modes, and BHOP.
+configuration source, operating/surface modes, BHOP, the host mouse-button mapping,
+and the current onboard DPI stage when an onboard profile is active.
 
 The lifecycle operation `shutdown` acknowledges an application-wide graceful shutdown
 and then broadcasts `application_shutting_down`. The tray and any future settings UI
@@ -34,7 +35,10 @@ without coupling UI code to the HID process.
 
 Supported live-setting operations are:
 
-- `set_dpi`
+- `set_dpi` (same value on both axes)
+- `set_dpi_axes` (`x`, `y`; independent axes where advertised)
+- `set_mouse_button_mapping` (`mapping`; host control only, one 0–16 value per physical button)
+- `set_onboard_dpi_stage` (`index` 0–4; active onboard profile required, no flash write)
 - `set_polling_rate`
 - `set_lift_off_distance`
 - `set_surface_mode`

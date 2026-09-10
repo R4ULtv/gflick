@@ -11,7 +11,8 @@ fn draft(state: &DeviceState, updates: &[(Key, &str)]) -> (Values, Values) {
 }
 #[test]
 fn validates_dpi_against_discrete_capabilities() {
-    let state = device();
+    let mut state = device();
+    state.settings.configuration_source = Some(ConfigurationSource::Host);
     for invalid in ["801", "0", "65536", "abc", ""] {
         let (v, d) = draft(&state, &[(Key::Dpi, invalid)]);
         assert!(plan(&state, &v, &d).is_err());
@@ -19,7 +20,11 @@ fn validates_dpi_against_discrete_capabilities() {
     let (v, d) = draft(&state, &[(Key::Dpi, "1600")]);
     assert!(matches!(
         plan(&state, &v, &d).unwrap()[0].command,
-        RequestCommand::SetDpi { dpi: 1600, .. }
+        RequestCommand::SetDpiAxes {
+            x: 1600,
+            y: 800,
+            ..
+        }
     ));
 }
 #[test]
@@ -192,4 +197,139 @@ fn enclosure_colors_are_validated_per_model() {
     state.device.display_name = Some("PRO X SUPERLIGHT 2 DEX".into());
     state.device.nickname = Some("G305".into());
     assert!(!specs(&state).iter().any(|s| s.key == Key::Appearance));
+}
+
+#[test]
+fn each_supported_model_exposes_its_live_controls_without_borrowing_others() {
+    for (model, name, count) in [
+        (DeviceModel::Superlight, "PRO X WIRELESS", 5),
+        (DeviceModel::Superlight2, "PRO X 2", 5),
+        (DeviceModel::G305, "G305", 6),
+    ] {
+        let mut state = device();
+        state.device.display_name = Some(name.into());
+        let extended = model == DeviceModel::Superlight2;
+        let description = state
+            .capabilities
+            .onboard_profile_description
+            .as_mut()
+            .unwrap();
+        description.button_count = count;
+        description.profile_count = if model == DeviceModel::G305 { 1 } else { 5 };
+        description.profile_format_id = match model {
+            DeviceModel::G305 => 3,
+            DeviceModel::Superlight => 4,
+            DeviceModel::Superlight2 => 7,
+        };
+        state.capabilities.lift_off_distance = extended;
+        state.capabilities.surface_mode = extended;
+        state.capabilities.bunny_hopping = extended;
+        state.capabilities.operating_mode_switch = model == DeviceModel::G305;
+        state.capabilities.color_led_effects = model == DeviceModel::G305;
+        state.capabilities.mouse_button_filter = true;
+        state.settings.mouse_button_mapping = Some((1..=count).collect());
+        state.settings.dpi.as_mut().unwrap().current_y = extended.then_some(800);
+        if !extended {
+            state.settings.polling_rate = PollingRateState::Shared { hz: 1000 };
+            state.capabilities.polling_rates = PollingRateCapabilities::Shared {
+                supported_hz: vec![125, 250, 500, 1000],
+            };
+        }
+        let fields = specs(&state);
+        let has = |key| fields.iter().any(|field| field.key == key);
+        for key in [
+            Key::Dpi,
+            Key::Wired,
+            Key::Source,
+            Key::Nickname,
+            Key::Appearance,
+        ] {
+            assert!(has(key), "{model:?} missing {key:?}");
+        }
+        for key in [
+            Key::DpiY,
+            Key::Wireless,
+            Key::Lod,
+            Key::Surface,
+            Key::Bhop,
+            Key::Timeout,
+        ] {
+            assert_eq!(has(key), extended, "{model:?}: {key:?}");
+        }
+        assert_eq!(has(Key::Operating), model == DeviceModel::G305);
+        assert_eq!(has(Key::Lighting), model == DeviceModel::G305);
+        assert_eq!(
+            fields
+                .iter()
+                .filter(|field| matches!(field.key, Key::Button(_)))
+                .count(),
+            usize::from(count)
+        );
+        state.settings.onboard_dpi_stage = Some(0);
+        assert!(specs(&state).iter().any(|field| field.key == Key::Stage));
+    }
+}
+#[test]
+fn independent_dpi_validates_both_axes_and_preserves_the_other_axis() {
+    let mut state = device();
+    let (values, dirty) = draft(&state, &[(Key::DpiY, "1600")]);
+    assert!(plan(&state, &values, &dirty).is_err());
+    state.settings.configuration_source = Some(ConfigurationSource::Host);
+    let (values, dirty) = draft(&state, &[(Key::DpiY, "1600")]);
+    assert!(matches!(
+        plan(&state, &values, &dirty).unwrap()[0].command,
+        RequestCommand::SetDpiAxes {
+            x: 800,
+            y: 1600,
+            ..
+        }
+    ));
+    let (values, dirty) = draft(&state, &[(Key::DpiY, "801")]);
+    assert!(plan(&state, &values, &dirty).is_err());
+    let mut single = state;
+    single.settings.dpi.as_mut().unwrap().current_y = None;
+    let (values, dirty) = draft(&single, &[(Key::Dpi, "1600")]);
+    assert!(matches!(
+        plan(&single, &values, &dirty).unwrap()[0].command,
+        RequestCommand::SetDpi { dpi: 1600, .. }
+    ));
+}
+#[test]
+fn button_mapping_requires_host_control_and_preserves_unedited_buttons() {
+    let mut state = device();
+    state.capabilities.mouse_button_filter = true;
+    state.settings.mouse_button_mapping = Some(vec![1, 2, 3, 4, 5, 6]);
+    let (values, dirty) = draft(&state, &[(Key::Button(3), "5")]);
+    assert!(plan(&state, &values, &dirty).is_err());
+    let (values, dirty) = draft(&state, &[(Key::Source, "host"), (Key::Button(3), "5")]);
+    let changes = plan(&state, &values, &dirty).unwrap();
+    assert!(matches!(
+        changes[0].command,
+        RequestCommand::UseHostSettings { .. }
+    ));
+    assert!(
+        matches!(&changes[1].command, RequestCommand::SetMouseButtonMapping { mapping, .. } if mapping == &[1,2,3,5,5,6])
+    );
+    for update in [(Key::Button(6), "1"), (Key::Button(0), "17")] {
+        let (values, dirty) = draft(&state, &[(Key::Source, "host"), update]);
+        assert!(plan(&state, &values, &dirty).is_err());
+    }
+}
+#[test]
+fn dpi_stage_selection_is_separate_and_requires_onboard_control() {
+    let mut state = device();
+    state.settings.onboard_dpi_stage = Some(0);
+    let (values, dirty) = draft(&state, &[(Key::Stage, "3")]);
+    assert!(matches!(
+        plan(&state, &values, &dirty).unwrap()[0].command,
+        RequestCommand::SetOnboardDpiStage { index: 3, .. }
+    ));
+    for changes in [
+        vec![(Key::Stage, "5")],
+        vec![(Key::Stage, "2"), (Key::Dpi, "1600")],
+        vec![(Key::Stage, "1"), (Key::Source, "host")],
+    ] {
+        let (values, dirty) = draft(&state, &changes);
+        assert!(plan(&state, &values, &dirty).is_err());
+    }
 }

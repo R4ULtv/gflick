@@ -14,6 +14,7 @@ use gpui_kit::component::{
     ActiveTheme, Disableable, Icon, Sizable as _,
     button::{Button, ButtonCustomVariant, ButtonVariants},
     input::{Input, InputEvent, InputState},
+    menu::{DropdownMenu as _, PopupMenuItem},
     switch::Switch,
 };
 use gpui_kit::{
@@ -231,7 +232,7 @@ impl Control {
             Key::Appearance => Self::Swatches,
             // DPI values are points on a scale rather than named modes, so they
             // stay chips however few of them a mouse supports.
-            Key::Dpi => Self::Chips,
+            Key::Dpi | Key::DpiY => Self::Chips,
             _ if spec.choices.len() == 2
                 && spec.choices[0].0 == "off"
                 && spec.choices[1].0 == "on" =>
@@ -300,6 +301,7 @@ fn group_help(group: &str) -> &'static str {
     match group {
         "Sensitivity" => "How far the pointer travels for a given hand movement.",
         "Polling rate" => "How often the mouse reports its position to this computer.",
+        "Buttons" => "Choose the host-visible action for each physical mouse button.",
         "Sensor" => "Tracking behaviour on the surface and just above it.",
         "Bunny hopping" => {
             "Keeps the sensor reporting through a short lift, so re-placing the mouse mid-motion \
@@ -319,6 +321,7 @@ fn group_icon(group: &str) -> IconName {
     match group {
         "Sensitivity" => IconName::MousePointer,
         "Polling rate" => IconName::Gauge,
+        "Buttons" => IconName::Mouse,
         "Sensor" => IconName::Radar,
         "Bunny hopping" => IconName::Mouse,
         // The card is about which brain the mouse listens to, its own or ours.
@@ -339,7 +342,8 @@ fn group_order(group: &str) -> usize {
         "Configuration" => 4,
         "Lighting" => 5,
         "Presentation" => 6,
-        _ => 7,
+        "Buttons" => 7,
+        _ => 8,
     }
 }
 
@@ -363,6 +367,41 @@ impl Editor {
     ) -> gpui_kit::AnyElement {
         let spec = &field.spec;
         let key = spec.key;
+
+        if matches!(key, Key::Button(_)) {
+            let choices = spec.choices.clone();
+            let selected = value.to_owned();
+            let label = choices
+                .iter()
+                .find(|(v, _)| v == value)
+                .map(|(_, label)| label.clone())
+                .unwrap_or_else(|| "Not reported".into());
+            let editor = cx.entity().downgrade();
+            return Button::new(SharedString::from(format!("{key:?}-mapping")))
+                .label(label)
+                .outline()
+                .dropdown_caret(true)
+                .disabled(self.busy)
+                .dropdown_menu(move |menu, _, _| {
+                    choices
+                        .iter()
+                        .fold(menu, |menu, (value, label)| {
+                            let editor = editor.clone();
+                            let action = value.clone();
+                            menu.item(
+                                PopupMenuItem::new(label.clone())
+                                    .checked(value == &selected)
+                                    .on_click(move |_, window, cx| {
+                                        let _ = editor.update(cx, |editor, cx| {
+                                            editor.set(key, action.clone(), window, cx)
+                                        });
+                                    }),
+                            )
+                        })
+                        .scrollable(true)
+                })
+                .into_any_element();
+        }
 
         if spec.text {
             let entry = div().w(px(input_width(key))).flex_shrink_0().child(

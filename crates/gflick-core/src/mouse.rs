@@ -1061,6 +1061,33 @@ impl MouseDevice {
         Ok(SettingChange { before, after })
     }
 
+    /// Sets independently validated X/Y values without changing lift-off distance.
+    pub fn set_dpi_axes(&self, x: u16, y: u16) -> Result<SettingChange<DpiInfo>> {
+        let feature = self
+            .features
+            .extended_dpi
+            .context("mouse does not expose independent X/Y DPI")?;
+        let capabilities = self.session.extended_dpi_capabilities(feature)?;
+        if !capabilities.has_y {
+            bail!("mouse does not expose independent Y-axis DPI");
+        }
+        let supported = self.session.supported_extended_adjustable_dpi(feature)?;
+        validate_supported("X-axis DPI", x, &supported)?;
+        validate_supported("Y-axis DPI", y, &supported)?;
+        let before = self
+            .session
+            .extended_adjustable_dpi(feature, capabilities)?;
+        self.session
+            .set_extended_adjustable_dpi(feature, capabilities, x, y, before.lod)?;
+        let after = self
+            .session
+            .extended_adjustable_dpi(feature, capabilities)?;
+        if after.current_x != x || after.current_y != Some(y) {
+            bail!("X/Y DPI read-back did not match the requested values");
+        }
+        Ok(SettingChange { before, after })
+    }
+
     pub fn set_dpi(&self, requested: u16) -> Result<SettingChange<DpiInfo>> {
         if let Some(feature) = self.features.extended_dpi {
             let capabilities = self.session.extended_dpi_capabilities(feature)?;

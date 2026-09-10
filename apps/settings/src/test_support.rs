@@ -44,6 +44,8 @@ pub fn device() -> DeviceState {
             mouse_button_filter: false,
         },
         settings: SettingsState {
+            onboard_dpi_stage: None,
+            mouse_button_mapping: None,
             battery: Some(BatteryState {
                 percentage: 47,
                 level_code: 0,

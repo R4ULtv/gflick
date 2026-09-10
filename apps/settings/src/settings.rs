@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Key {
     Dpi,
+    DpiY,
+    Button(u8),
     Wired,
     Wireless,
     Lod,
@@ -14,6 +16,7 @@ pub enum Key {
     Bhop,
     Timeout,
     Source,
+    Stage,
     Nickname,
     Appearance,
     Lighting,
@@ -99,7 +102,67 @@ pub fn specs(state: &DeviceState) -> Vec<Spec> {
             .filter(|v| values.contains(v))
             .map(|v| (v.to_string(), v.to_string()))
             .collect();
-        fields.push(s);
+        if let Some(y) = settings.dpi.and_then(|dpi| dpi.current_y) {
+            s.label = "DPI X";
+            s.help =
+                "Horizontal sensitivity. Set X and Y to the same value for uniform sensitivity."
+                    .into();
+            let mut vertical = spec(DpiY, "Sensitivity", "DPI Y", y, &[]);
+            vertical.unit = "DPI";
+            vertical.help =
+                "Vertical sensitivity. Each axis must use a supported DPI increment.".into();
+            vertical.choices = s.choices.clone();
+            fields.push(s);
+            fields.push(vertical);
+        } else {
+            fields.push(s);
+        }
+    }
+    if caps.mouse_button_filter
+        && let Some(mapping) = settings.mouse_button_mapping.as_ref()
+    {
+        const LABELS: [&str; 16] = [
+            "Button 1",
+            "Button 2",
+            "Button 3",
+            "Button 4",
+            "Button 5",
+            "Button 6",
+            "Button 7",
+            "Button 8",
+            "Button 9",
+            "Button 10",
+            "Button 11",
+            "Button 12",
+            "Button 13",
+            "Button 14",
+            "Button 15",
+            "Button 16",
+        ];
+        for (index, action) in mapping.iter().enumerate().take(LABELS.len()) {
+            let mut button = spec(Button(index as u8), "Buttons", LABELS[index], action, &[]);
+            button.help =
+                "Host button mapping. Requires Host control; does not edit onboard assignments."
+                    .into();
+            button.text = false;
+            button.choices = (0..=16)
+                .map(|number| {
+                    (
+                        number.to_string(),
+                        match number {
+                            0 => "Disabled".into(),
+                            1 => "Left click".into(),
+                            2 => "Right click".into(),
+                            3 => "Middle click".into(),
+                            4 => "Back".into(),
+                            5 => "Forward".into(),
+                            _ => format!("Mouse button {number}"),
+                        },
+                    )
+                })
+                .collect();
+            fields.push(button);
+        }
     }
     match &caps.polling_rates {
         PollingRateCapabilities::Shared { supported_hz } => fields.push(rates(
@@ -236,6 +299,17 @@ pub fn specs(state: &DeviceState) -> Vec<Spec> {
         s.help="Polling changes require Host control. Select it explicitly before applying. Profile selection activates an existing profile; it does not rewrite it.".into();
         fields.push(s);
     }
+    if caps.onboard_profiles
+        && let Some(stage) = settings.onboard_dpi_stage
+    {
+        let mut field = spec(Stage, "Configuration", "Active DPI stage", stage, &[]);
+        field.text = false;
+        field.choices = (0..5)
+            .map(|i| (i.to_string(), format!("Stage {}", i + 1)))
+            .collect();
+        field.help = "Select a DPI slot in the active onboard profile. Its stored DPI values are not edited.".into();
+        fields.push(field);
+    }
     if caps.color_led_effects {
         let mut s = spec(
             Lighting,
@@ -369,7 +443,31 @@ pub fn plan(state: &DeviceState, values: &Values, dirty: &Values) -> Result<Vec<
             command,
         });
     }
-    if dirty.contains_key(&Dpi) {
+    if dirty.contains_key(&Stage) {
+        ensure!(
+            matches!(
+                state.settings.configuration_source,
+                Some(ConfigurationSource::Onboard { .. })
+            ) && get(Source) != "host",
+            "An onboard profile must be active before selecting its DPI stage."
+        );
+        ensure!(
+            dirty
+                .keys()
+                .all(|key| matches!(key, Stage | Nickname | Appearance)),
+            "Apply the DPI stage separately before editing other settings."
+        );
+        let index = number(Stage, "DPI stage")?;
+        ensure!(index <= 4, "Choose a DPI stage from 1 to 5.");
+        changes.push(Change {
+            keys: vec![Stage],
+            command: RequestCommand::SetOnboardDpiStage {
+                device_id: id.clone(),
+                index: index as u8,
+            },
+        });
+    }
+    if dirty.contains_key(&Dpi) || dirty.contains_key(&DpiY) {
         let dpi = number(Dpi, "DPI")?;
         ensure!(
             state
@@ -379,11 +477,66 @@ pub fn plan(state: &DeviceState, values: &Values, dirty: &Values) -> Result<Vec<
                 .is_some_and(|v| v.contains(&dpi)),
             "That DPI is not supported by this mouse. Choose a reported increment."
         );
+        let (keys, command) = if available.iter().any(|spec| spec.key == DpiY) {
+            ensure!(
+                get(Source) == "host",
+                "Select Host control under Configuration before changing X/Y DPI."
+            );
+            let y = number(DpiY, "Y-axis DPI")?;
+            ensure!(
+                state
+                    .capabilities
+                    .supported_dpi
+                    .as_ref()
+                    .is_some_and(|values| values.contains(&y)),
+                "That Y-axis DPI is not supported by this mouse."
+            );
+            (
+                vec![Dpi, DpiY],
+                RequestCommand::SetDpiAxes {
+                    device_id: id.clone(),
+                    x: dpi,
+                    y,
+                },
+            )
+        } else {
+            (
+                vec![Dpi],
+                RequestCommand::SetDpi {
+                    device_id: id.clone(),
+                    dpi,
+                },
+            )
+        };
+        changes.push(Change { keys, command });
+    }
+    let button_keys: Vec<_> = dirty
+        .keys()
+        .filter(|key| matches!(key, Button(_)))
+        .copied()
+        .collect();
+    if !button_keys.is_empty() {
+        ensure!(
+            get(Source) == "host",
+            "Select Host control under Configuration before changing button mappings."
+        );
+        let current = state
+            .settings
+            .mouse_button_mapping
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Button mapping was not reported"))?;
+        let mut mapping = current.clone();
+        for key in &button_keys {
+            let Button(index) = key else { unreachable!() };
+            let action = number(*key, "button action")?;
+            ensure!(action <= 16, "Choose a mouse button action from 0 to 16.");
+            mapping[usize::from(*index)] = action as u8;
+        }
         changes.push(Change {
-            keys: vec![Dpi],
-            command: RequestCommand::SetDpi {
+            keys: button_keys,
+            command: RequestCommand::SetMouseButtonMapping {
                 device_id: id.clone(),
-                dpi,
+                mapping,
             },
         });
     }

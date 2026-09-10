@@ -36,22 +36,30 @@ while a write is in progress.
 
 Only settings advertised by the selected mouse are offered:
 
-- DPI entry and presets, validated against the actual supported increments;
+- DPI entry and presets, with independent X/Y controls when supported;
 - shared polling or independent wired/wireless rates, as reported by the mouse;
 - lift-off distance, surface mode, operating mode, and bunny hopping with timeout;
-- host control and selection of existing onboard profiles;
+- host control, existing onboard profile selection, and live DPI-stage selection;
+- host mouse-button mapping, including disabling a button or mapping it to HID buttons 1–16;
 - lighting zone, off/fixed/cycling/breathing effects, color, period and brightness,
   and returning control to firmware;
 - a saved device nickname in Device details, with an empty name restoring the reported name;
 - model-specific enclosure colors in Device details: Superlight 1 (white, black, red, magenta), Superlight 2 (white, black, cyan, magenta), and G305 (white, black, lilac, blue, mint).
 
-DPI writes apply to both axes: the current agent API accepts one DPI value.
-Polling changes from onboard control require explicitly selecting **Host control**
-before Apply. Selecting an onboard profile must be applied separately from sensor
-edits, so those edits start from that profile's actual values. Stored profile
-contents, DPI stages, button assignments and macros are not exposed by the current
-agent protocol and are not edited here. Lighting state is not included in device
-snapshots; the form identifies it as unreported and starts with **Unchanged**.
+Superlight 1 and G305 use a single DPI value. Superlight 2 exposes separate X/Y
+values; set them equally for uniform sensitivity. Polling, host button mapping,
+and X/Y DPI changes require explicitly selecting **Host control** before Apply.
+Changing an onboard profile or DPI stage must be applied separately from sensor
+edits, so those edits start from the profile/stage's actual values. Button mappings
+and both DPI axes are saved in host preferences; the selected onboard stage is
+saved with the active onboard profile preference.
+
+Stored-profile editing (saved DPI stage values, onboard button assignments,
+profile names, and power timers) and macros are outside this live-settings UI.
+Lighting state is not included in device snapshots; the form identifies it as
+unreported and starts with **Unchanged**. The agent verifies lighting writes via
+the core's read-back checks. Rebuild and restart the agent and Settings for the
+new live-setting commands and snapshot fields.
 
 Before writing, the client re-reads the device and checks for external setting or
 hardware-identity changes. Commands run in order on a background executor, stop at

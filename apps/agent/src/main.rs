@@ -514,6 +514,19 @@ impl Agent {
                 nickname,
             } => self.set_nickname(&device_id, nickname),
             RequestCommand::ReorderDevices { hardware_ids } => self.reorder(&hardware_ids),
+            RequestCommand::SetOnboardDpiStage { device_id, index } => {
+                self.mouse(&device_id)?
+                    .set_current_onboard_dpi_stage(index)?;
+                self.device_response(&device_id)
+            }
+            RequestCommand::SetDpiAxes { device_id, x, y } => {
+                self.mouse(&device_id)?.set_dpi_axes(x, y)?;
+                self.device_response(&device_id)
+            }
+            RequestCommand::SetMouseButtonMapping { device_id, mapping } => {
+                self.mouse(&device_id)?.set_mouse_button_filter(&mapping)?;
+                self.device_response(&device_id)
+            }
             RequestCommand::SetDpi { device_id, dpi } => {
                 self.mouse(&device_id)?.set_dpi(dpi)?;
                 self.device_response(&device_id)
@@ -916,6 +929,7 @@ fn capture_device_preferences(
         store::HostPreferences::default()
     };
     store::DevicePreferences {
+        onboard_dpi_stage: None,
         control,
         host,
         lighting: None,
@@ -934,9 +948,18 @@ fn update_preferences(
     device: &protocol::DeviceState,
 ) {
     match command {
-        protocol::RequestCommand::SetDpi { .. } => {
+        protocol::RequestCommand::SetDpi { .. } | protocol::RequestCommand::SetDpiAxes { .. } => {
             sync_control_preference(preferences, &device.settings);
             preferences.host.dpi = device.settings.dpi.map(|dpi| dpi.current_x);
+            preferences.host.dpi_y = device.settings.dpi.and_then(|dpi| dpi.current_y);
+        }
+        protocol::RequestCommand::SetOnboardDpiStage { .. } => {
+            sync_control_preference(preferences, &device.settings);
+            preferences.onboard_dpi_stage = device.settings.onboard_dpi_stage;
+        }
+        protocol::RequestCommand::SetMouseButtonMapping { .. } => {
+            sync_control_preference(preferences, &device.settings);
+            preferences.host.button_mapping = device.settings.mouse_button_mapping.clone();
         }
         protocol::RequestCommand::SetPollingRate { .. } => {
             sync_control_preference(preferences, &device.settings);
@@ -982,6 +1005,7 @@ fn update_preferences(
         }
         protocol::RequestCommand::UseOnboardProfile { profile, .. } => {
             preferences.control = Some(store::ControlPreference::Onboard { profile: *profile });
+            preferences.onboard_dpi_stage = device.settings.onboard_dpi_stage;
         }
         protocol::RequestCommand::Ping
         | protocol::RequestCommand::Shutdown
@@ -1033,6 +1057,8 @@ fn polling_preference_from_protocol(
 
 fn capture_protocol_host_preferences(device: &protocol::DeviceState) -> store::HostPreferences {
     store::HostPreferences {
+        dpi_y: device.settings.dpi.and_then(|dpi| dpi.current_y),
+        button_mapping: device.settings.mouse_button_mapping.clone(),
         dpi: device
             .capabilities
             .supported_dpi
@@ -1076,6 +1102,8 @@ fn capture_host_preferences(
 ) -> store::HostPreferences {
     let mode = settings.mode_status;
     store::HostPreferences {
+        dpi_y: settings.dpi.and_then(|dpi| dpi.current_y),
+        button_mapping: None,
         dpi: capabilities
             .supported_dpi
             .as_ref()
@@ -1150,6 +1178,11 @@ fn restore_device_preferences(
             ) {
                 mouse.activate_onboard_profile(profile)?;
             }
+            if let Some(stage) = preferences.onboard_dpi_stage {
+                if mouse.current_onboard_dpi_stage()? != Some(stage) {
+                    mouse.set_current_onboard_dpi_stage(stage)?;
+                }
+            }
             false
         }
         None => false,
@@ -1182,13 +1215,31 @@ fn restore_host_preferences(
     current: &core::SettingsSnapshot,
     preferences: &store::HostPreferences,
 ) -> Result<()> {
+    if let Some(mapping) = &preferences.button_mapping {
+        if !capabilities.mouse_button_filter {
+            bail!("stored button mapping is unsupported");
+        }
+        if mouse
+            .mouse_button_filter()?
+            .is_none_or(|info| &info.mapping != mapping)
+        {
+            mouse.set_mouse_button_filter(mapping)?;
+        }
+    }
     if let Some(dpi) = preferences.dpi
         && capabilities.supported_dpi.is_some()
-        && current
-            .dpi
-            .is_none_or(|state| state.current_x != dpi || state.current_y.is_some_and(|y| y != dpi))
+        && current.dpi.is_none_or(|state| {
+            state.current_x != dpi
+                || state
+                    .current_y
+                    .is_some_and(|y| y != preferences.dpi_y.unwrap_or(dpi))
+        })
     {
-        mouse.set_dpi(dpi)?;
+        if current.dpi.is_some_and(|d| d.current_y.is_some()) {
+            mouse.set_dpi_axes(dpi, preferences.dpi_y.unwrap_or(dpi))?;
+        } else {
+            mouse.set_dpi(dpi)?;
+        }
     }
 
     if let Some(polling) = preferences.polling_rate {
@@ -1284,6 +1335,9 @@ fn command_device_id(command: &protocol::RequestCommand) -> Option<&str> {
         | RequestCommand::ReorderDevices { .. } => None,
         RequestCommand::GetDevice { device_id }
         | RequestCommand::SetDpi { device_id, .. }
+        | RequestCommand::SetDpiAxes { device_id, .. }
+        | RequestCommand::SetOnboardDpiStage { device_id, .. }
+        | RequestCommand::SetMouseButtonMapping { device_id, .. }
         | RequestCommand::SetPollingRate { device_id, .. }
         | RequestCommand::SetLiftOffDistance { device_id, .. }
         | RequestCommand::SetSurfaceMode { device_id, .. }
@@ -1387,6 +1441,16 @@ fn device_state(
     preferences: Option<&store::DevicePreferences>,
 ) -> Result<protocol::DeviceState> {
     let settings = settings.map_or_else(|| mouse.settings(), Ok)?;
+    let mut settings = settings_state(settings);
+    if matches!(
+        settings.configuration_source,
+        Some(protocol::ConfigurationSource::Onboard { .. })
+    ) {
+        settings.onboard_dpi_stage = mouse.current_onboard_dpi_stage()?;
+    }
+    if capabilities.mouse_button_filter {
+        settings.mouse_button_mapping = mouse.mouse_button_filter()?.map(|info| info.mapping);
+    }
     Ok(protocol::DeviceState {
         device: device_summary(
             device,
@@ -1396,7 +1460,7 @@ fn device_state(
             preferences,
         ),
         capabilities: capabilities_state(capabilities.clone()),
-        settings: settings_state(settings),
+        settings,
     })
 }
 
@@ -1505,6 +1569,8 @@ fn settings_state(settings: core::SettingsSnapshot) -> protocol::SettingsState {
         )
     });
     protocol::SettingsState {
+        onboard_dpi_stage: None,
+        mouse_button_mapping: None,
         battery: settings.battery.map(battery_state),
         dpi: settings.dpi.map(|dpi| protocol::DpiState {
             current_x: dpi.current_x,
@@ -1961,6 +2027,8 @@ mod tests {
                 mouse_button_filter: true,
             },
             settings: protocol::SettingsState {
+                onboard_dpi_stage: None,
+                mouse_button_mapping: None,
                 battery: None,
                 dpi: Some(protocol::DpiState {
                     current_x: 800,
@@ -2190,9 +2258,55 @@ mod tests {
     }
 
     #[test]
+    fn live_axis_mapping_and_stage_commands_persist_verified_values() {
+        let mut state = sample_device_state();
+        let mut prefs = store::DevicePreferences::default();
+        state.settings.configuration_source = Some(protocol::ConfigurationSource::Host);
+        state.settings.dpi.as_mut().unwrap().current_x = 800;
+        state.settings.dpi.as_mut().unwrap().current_y = Some(1600);
+        update_preferences(
+            &mut prefs,
+            &protocol::RequestCommand::SetDpiAxes {
+                device_id: "mouse".into(),
+                x: 800,
+                y: 1600,
+            },
+            &state,
+        );
+        assert_eq!(prefs.host.dpi, Some(800));
+        assert_eq!(prefs.host.dpi_y, Some(1600));
+        state.settings.mouse_button_mapping = Some(vec![1, 2, 3, 5, 4]);
+        update_preferences(
+            &mut prefs,
+            &protocol::RequestCommand::SetMouseButtonMapping {
+                device_id: "mouse".into(),
+                mapping: vec![1, 2, 3, 5, 4],
+            },
+            &state,
+        );
+        assert_eq!(prefs.host.button_mapping, Some(vec![1, 2, 3, 5, 4]));
+        let saved_host = prefs.host.clone();
+        state.settings.configuration_source = Some(protocol::ConfigurationSource::Onboard {
+            active_profile: Some(1),
+        });
+        state.settings.onboard_dpi_stage = Some(2);
+        update_preferences(
+            &mut prefs,
+            &protocol::RequestCommand::SetOnboardDpiStage {
+                device_id: "mouse".into(),
+                index: 2,
+            },
+            &state,
+        );
+        assert_eq!(prefs.onboard_dpi_stage, Some(2));
+        assert_eq!(prefs.host, saved_host);
+    }
+
+    #[test]
     fn selecting_onboard_profile_preserves_saved_host_preferences() {
         let mut state = sample_device_state();
         let mut preferences = store::DevicePreferences {
+            onboard_dpi_stage: None,
             control: Some(store::ControlPreference::Host),
             host: capture_protocol_host_preferences(&state),
             lighting: None,

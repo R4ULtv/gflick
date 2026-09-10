@@ -4,7 +4,7 @@ This matrix distinguishes complete end-user mouse functionality from HID++ entri
 that merely happen to be advertised by the firmware. `gflick-probe features` is the
 runtime source of truth and prints the same classification for any connected device.
 
-The complete matrix is hardware-validated on Windows and Apple Silicon macOS. Intel
+The device capability observations were hardware-validated on Windows and Apple Silicon macOS. Intel
 macOS is intentionally unsupported. No onboard flash write has been sent from macOS;
 cross-platform write validation used reversible live settings only.
 
@@ -24,10 +24,10 @@ cross-platform write validation used reversible live settings only.
 | Onboard profile list and decoding | Format `0x04` | Format `0x07` | Format `0x03` | Complete |
 | Transactional profile-sector writes | Live flash proof passed | Encoder unit-tested; live flash intentionally not tested | Encoder unit-tested; live flash intentionally not tested | Core complete |
 | Profile enable/disable directory | Five profiles | Five profiles | One writable plus one factory profile | Core/probe complete; live legacy proof passed on Superlight |
-| DPI stages and active/shift stage | Stored in profile | Stored in profile | Stored in profile | Core/probe complete |
+| DPI stages and active/shift stage | Stored in profile | Stored in profile | Stored in profile | Live stage selection in agent/Settings; stored values remain core/probe only |
 | Onboard button assignments | Five buttons | Five buttons | Six buttons | Core/probe complete; macros excluded |
 | Profile names and power timers | Yes | Yes | Yes | Core/probe complete |
-| Host button mapping/filter | Yes (`0x8110`) | Yes (`0x8110`) | Yes (`0x8110`) | Core read/write complete |
+| Host button mapping/filter | Yes (`0x8110`) | Yes (`0x8110`) | Yes (`0x8110`) | Core, agent, and Settings controls |
 | Host shortcuts and macros | Possible through an agent | Possible through an agent | Possible through an agent | Intentionally out of scope |
 | Onboard macro creation | Macro format `0x01` advertised | Macro format `0x01` advertised | Macro format `0x01` advertised | Intentionally out of scope |
 | Per-application profiles | Possible through a host service | Possible through a host service | Possible through a host service | Intentionally out of scope |
@@ -69,3 +69,16 @@ volatile LED writes with effect-aware read-back verification. Firmware LED owner
 was restored afterward. Its shared polling rate passed `1000 -> 500 -> 1000 Hz` while
 temporarily host-controlled, followed by verified reactivation of onboard profile
 sector `0x0001`. No onboard sector or non-volatile LED storage was written.
+
+## Settings client live controls
+
+The GPUI client uses reported capabilities and settings rather than enabling controls
+by product name. Coverage tests model the recorded Superlight 1, Superlight 2, and
+G305 feature sets, including five/five/six host buttons, single versus separate
+DPI axes, shared versus per-connection rates, and the model-specific sensor/LED
+features. Agent persistence and form-validation tests cover the new live commands;
+the core setters verify hardware read-back. This UI implementation pass did not
+perform hardware writes.
+
+Stored-profile content editing remains outside the settings client. Selecting an
+existing profile or its current DPI stage is a live action and does not flash a sector.

@@ -381,6 +381,8 @@ mod tests {
                 mouse_button_filter: false,
             },
             settings: SettingsState {
+                onboard_dpi_stage: None,
+                mouse_button_mapping: None,
                 battery: None,
                 dpi: None,
                 polling_rate: PollingRateState::Unsupported,
