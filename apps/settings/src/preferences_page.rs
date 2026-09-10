@@ -1,5 +1,9 @@
 use crate::*;
-use gpui_kit::component::{WindowExt, dialog::DialogButtonProps, switch::Switch};
+use gpui_kit::component::{
+    WindowExt,
+    dialog::{self, DialogButtonProps, DialogFooter},
+    switch::Switch,
+};
 
 /// What a service switch does when it is moved. Boxed because the two rows hand
 /// the same builder two different listeners.
@@ -222,45 +226,117 @@ impl SettingsView {
             });
             return;
         }
-        let summary = settings::specs(&current.baseline)
+        // A value as the page shows it: the chosen label where there is one,
+        // the raw entry where there is not.
+        let display = |spec: &settings::Spec, value: &str| -> SharedString {
+            if value.is_empty() {
+                return SharedString::new_static("Default");
+            }
+            match spec.choices.iter().find(|(v, _)| v == value) {
+                Some((_, label)) => label.clone().into(),
+                None => value.to_owned().into(),
+            }
+        };
+        let rows = settings::specs(&current.baseline)
             .into_iter()
             .filter_map(|spec| {
                 dirty.get(&spec.key).map(|value| {
-                    let value = spec
-                        .choices
-                        .iter()
-                        .find(|(v, _)| v == value)
-                        .map(|(_, label)| label.as_str())
-                        .unwrap_or(value);
-                    format!(
-                        "{}: {}",
-                        spec.label,
-                        if value.is_empty() { "Default" } else { value }
+                    let to = display(&spec, value);
+                    (
+                        SharedString::new_static(spec.label),
+                        display(&spec, &spec.value),
+                        // The unit is carried once, by the value that will
+                        // stand: twice in one row is noise, and never at all
+                        // leaves "0 → 300" for a timeout.
+                        if spec.unit.is_empty() || value.is_empty() {
+                            to
+                        } else {
+                            format!("{to} {}", spec.unit).into()
+                        },
                     )
                 })
             })
-            .collect::<Vec<_>>()
-            .join("\n");
-        let description = format!(
-            "{} {}?\n\n{}",
-            if discard {
-                "Discard pending changes for"
-            } else {
-                "Apply these changes to"
-            },
-            device_label(&current.baseline.device),
-            summary
-        );
+            .collect::<Vec<_>>();
+        let device = device_label(&current.baseline.device);
+        let description = if discard {
+            format!("{device} keeps the values it has now.")
+        } else {
+            format!("Written to {device} as soon as you confirm.")
+        };
         window.open_alert_dialog(cx, move |dialog, _, _| {
             let editor = editor.clone();
             let values = values.clone();
             dialog
+                // Sized rather than left to the longest row, so the recap has
+                // room to set each value against the one it replaces.
+                .width(px(460.0))
+                .icon(
+                    Icon::new(if discard {
+                        IconName::Undo2
+                    } else {
+                        IconName::Check
+                    })
+                    .with_size(px(16.0))
+                    .text_color(rgb(if discard {
+                        theme::WARNING
+                    } else {
+                        theme::ACCENT_TEXT
+                    })),
+                )
                 .title(if discard {
                     "Discard changes?"
                 } else {
                     "Apply changes?"
                 })
                 .description(description.clone())
+                .child(ui::change_list(rows.clone()))
+                // The same two buttons as the bar that opened this, at the same
+                // size and with the same glyphs, so the dialog reads as the
+                // press being confirmed rather than a second, unrelated choice.
+                // Discard carries the danger fill: it is the one that destroys
+                // work. Both dispatch the dialog's own actions, which is what
+                // runs `on_ok` and closes the layer.
+                .footer(
+                    DialogFooter::new()
+                        .child(
+                            Button::new("dialog-cancel")
+                                .outline()
+                                .compact()
+                                .child(ui::button_label(
+                                    if discard { "Keep editing" } else { "Cancel" },
+                                    theme::text::BODY,
+                                ))
+                                .on_click(|_, window, cx| {
+                                    window.dispatch_action(Box::new(dialog::Cancel), cx)
+                                }),
+                        )
+                        .child(
+                            Button::new("dialog-ok")
+                                .map(|button| {
+                                    if discard {
+                                        button.danger()
+                                    } else {
+                                        button.primary()
+                                    }
+                                })
+                                .compact()
+                                .icon(if discard {
+                                    IconName::Undo2
+                                } else {
+                                    IconName::Check
+                                })
+                                .child(ui::button_label(
+                                    if discard { "Discard" } else { "Apply" },
+                                    theme::text::BODY,
+                                ))
+                                .on_click(|_, window, cx| {
+                                    window.dispatch_action(
+                                        Box::new(dialog::Confirm { secondary: false }),
+                                        cx,
+                                    )
+                                }),
+                        ),
+                )
                 .button_props(
                     DialogButtonProps::default()
                         .show_cancel(true)

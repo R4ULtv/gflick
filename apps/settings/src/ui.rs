@@ -1,4 +1,5 @@
 //! Shared UI primitives. Containers use `min_w_0` so long text wraps in flex layouts.
+use crate::icons::IconName;
 use crate::theme::*;
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{Icon, Sizable as _};
@@ -128,6 +129,59 @@ pub fn switch_state(checked: bool) -> Div {
         .font_medium()
         .text_color(rgb(MUTED))
         .child(if checked { "On" } else { "Off" })
+}
+
+/// The changes a confirmation is asking about: what each is called, what the
+/// device holds now, and what it would hold instead.
+///
+/// The old value stays in the row, dimmed. What a change replaces is half of
+/// what it is, and a list of bare new values cannot be checked against
+/// anything.
+pub fn change_list(rows: Vec<(SharedString, SharedString, SharedString)>) -> Div {
+    div()
+        .mt_1()
+        .rounded_lg()
+        .border_1()
+        .border_color(rgb(LINE))
+        .bg(rgb(DEEP))
+        .children(
+            rows.into_iter()
+                .enumerate()
+                .map(|(index, (label, from, to))| {
+                    div()
+                        .min_w_0()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_4()
+                        .px(px(11.0))
+                        .py(px(8.0))
+                        .when(index > 0, |el| el.border_t_1().border_color(rgb(LINE_SOFT)))
+                        .child(
+                            div()
+                                .min_w_0()
+                                .text_size(text::TINY)
+                                .text_color(rgb(MUTED))
+                                .child(label),
+                        )
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.0))
+                                .text_size(text::TINY)
+                                .child(div().text_color(rgb(MUTED_2)).child(from))
+                                .child(
+                                    Icon::new(IconName::ArrowRight)
+                                        .with_size(px(11.0))
+                                        .flex_shrink_0()
+                                        .text_color(rgb(MUTED_2)),
+                                )
+                                .child(div().font_semibold().text_color(rgb(TEXT)).child(to)),
+                        )
+                }),
+        )
 }
 
 /// A white count badge inside a filled accent button.
