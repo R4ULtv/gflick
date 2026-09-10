@@ -33,7 +33,7 @@ use gpui_kit::{
 };
 use icons::IconName;
 use theme::{
-    ACCENT, ACCENT_TEXT, BG, DANGER, DEEP, LINE, LINE_STRONG, MUTED, MUTED_2, SUCCESS, SURFACE,
+    ACCENT, BG, DANGER, DEEP, LINE, LINE_STRONG, MUTED, MUTED_2, SUCCESS, SURFACE,
     TEXT,
 };
 
@@ -873,7 +873,11 @@ impl SettingsView {
             .into_any_element()
     }
 
-    /// The right of the top bar: what is pending, and what to do about it.
+    /// The right of the top bar: what to do about what is pending.
+    ///
+    /// There is no readout beside the buttons, because the buttons are the
+    /// readout: the count rides on Apply, both go quiet when the mouse already
+    /// matches, and Apply says so itself while it is writing.
     fn render_actions(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let busy = self.working(cx);
         let dirty = self.selected_dirty(cx);
@@ -891,23 +895,6 @@ impl SettingsView {
                 |bar, editor| {
                     let discard = editor.clone();
                     bar.child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.0))
-                            .mr_1()
-                            .text_size(theme::text::TINY)
-                            .text_color(rgb(if dirty > 0 { ACCENT_TEXT } else { MUTED_2 }))
-                            .child(ui::dot(if dirty > 0 { ACCENT_TEXT } else { SUCCESS }))
-                            .child(if busy {
-                                "Writing to the mouse…".to_owned()
-                            } else if dirty > 0 {
-                                format!("{dirty} unsaved")
-                            } else {
-                                "Up to date".to_owned()
-                            }),
-                    )
-                    .child(
                         Button::new("discard")
                             .outline()
                             .compact()
