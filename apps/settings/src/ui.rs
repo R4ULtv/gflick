@@ -115,6 +115,21 @@ pub fn chip_accent(label: impl Into<SharedString>) -> Div {
     chip(label).bg(rgb(ACCENT_MUTED)).text_color(rgb(0xc7d0ff))
 }
 
+/// The word for a switch's state, set beside it.
+///
+/// The track alone carries the state by position and colour; the word says it
+/// outright. Both words are given one width, so a column of switches stays in
+/// line as they are flipped.
+pub fn switch_state(checked: bool) -> Div {
+    div()
+        .flex_shrink_0()
+        .w(px(21.0))
+        .text_size(text::SMALL)
+        .font_medium()
+        .text_color(rgb(MUTED))
+        .child(if checked { "On" } else { "Off" })
+}
+
 /// A white count badge inside a filled accent button.
 pub fn count_badge(count: usize) -> Div {
     div()

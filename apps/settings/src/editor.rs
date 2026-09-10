@@ -404,18 +404,27 @@ impl Editor {
         }
     }
 
-    /// A flag, as a switch. Carries the accent when on: unlike a segmented
-    /// control, there is nothing else on it to read the state from.
+    /// A flag, as a switch, with the state spelled out next to it. Carries the
+    /// accent when on: unlike a segmented control, there is nothing else on it
+    /// to read the state from.
     fn render_toggle(&self, spec: &Spec, value: &str, cx: &mut Context<Self>) -> impl IntoElement {
         let key = spec.key;
-        Switch::new(SharedString::from(format!("{key:?}-switch")))
-            .checked(value == "on")
-            .disabled(self.busy)
-            .accessibility_label(spec.label)
+        let on = value == "on";
+        div()
             .flex_shrink_0()
-            .on_click(cx.listener(move |editor, on: &bool, window, cx| {
-                editor.set(key, if *on { "on" } else { "off" }.to_owned(), window, cx)
-            }))
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(
+                Switch::new(SharedString::from(format!("{key:?}-switch")))
+                    .checked(on)
+                    .disabled(self.busy)
+                    .accessibility_label(spec.label)
+                    .on_click(cx.listener(move |editor, on: &bool, window, cx| {
+                        editor.set(key, if *on { "on" } else { "off" }.to_owned(), window, cx)
+                    })),
+            )
+            .child(ui::switch_state(on))
     }
 
     /// One control with one lit segment. Reads by position, so the selection is

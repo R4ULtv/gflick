@@ -306,9 +306,17 @@ impl SettingsView {
                           key: Preference| {
             ui::setting_row()
                 .child(ui::row_copy(label, help, false))
-                .child(Switch::new(id).checked(checked).on_click(
-                    cx.listener(move |view, checked, _, cx| view.set_preference(key, *checked, cx)),
-                ))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(Switch::new(id).checked(checked).on_click(cx.listener(
+                            move |view, checked, _, cx| view.set_preference(key, *checked, cx),
+                        )))
+                        .child(ui::switch_state(checked)),
+                )
                 .into_any_element()
         };
         // A switch standing for something outside the app — a login item, a
@@ -365,7 +373,10 @@ impl SettingsView {
                                 .checked(state.unwrap_or(false))
                                 .disabled(self.service_busy || state.is_none())
                                 .on_click(on_click),
-                        ),
+                        )
+                        // No word while the state is unknown: the chip beside it
+                        // is already saying that, and "Off" would be a guess.
+                        .children(state.map(ui::switch_state)),
                 )
                 .into_any_element()
         };
