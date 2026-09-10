@@ -4,7 +4,10 @@ mod editor;
 #[cfg(test)]
 mod filter;
 mod icons;
+mod preferences;
+mod preferences_page;
 mod preview;
+mod services;
 mod settings;
 #[cfg(test)]
 mod test_support;
@@ -17,7 +20,7 @@ use gflick_protocol::{
 };
 use gpui_fps::fps_monitor;
 use gpui_kit::component::{
-    ActiveTheme, Disableable, Icon, Root, Sizable, StyledExt,
+    ActiveTheme, Disableable, Icon, Root, Selectable, Sizable, StyledExt,
     button::{Button, ButtonVariants},
     scroll::ScrollableElement,
 };
@@ -53,9 +56,16 @@ const FPS_ENV: &str = "GFLICK_FPS";
 enum Page {
     Performance,
     Details,
+    Preferences,
 }
 
 struct SettingsView {
+    preferences: preferences::Preferences,
+    preference_error: Option<String>,
+    startup_enabled: Option<bool>,
+    agent_online: Option<bool>,
+    service_busy: bool,
+    tray_enabled: Option<bool>,
     editors: std::collections::BTreeMap<String, Entity<editor::Editor>>,
     subscriptions: Vec<gpui_kit::Subscription>,
     logo: Option<std::sync::Arc<RenderImage>>,
@@ -161,7 +171,15 @@ impl Render for DeviceDragCard {
 
 impl SettingsView {
     fn new(cx: &mut Context<Self>) -> Self {
+        let loaded = preferences::Preferences::load();
+        let preference_error = loaded.as_ref().err().map(|e| format!("{e:#}"));
         let mut view = Self {
+            preferences: loaded.unwrap_or_default(),
+            preference_error,
+            startup_enabled: None,
+            agent_online: None,
+            service_busy: false,
+            tray_enabled: None,
             editors: Default::default(),
             subscriptions: Vec::new(),
             logo: None,
@@ -177,6 +195,7 @@ impl SettingsView {
             show_fps: std::env::var_os(FPS_ENV).is_some_and(|value| !value.is_empty()),
         };
         view.refresh(cx);
+        view.apply_startup_defaults(cx);
         view
     }
 
@@ -324,6 +343,9 @@ impl SettingsView {
             return;
         }
         self.selected_id = Some(device_id);
+        if self.page == Page::Preferences {
+            self.page = Page::Performance;
+        }
         cx.notify();
     }
 
@@ -574,6 +596,19 @@ impl SettingsView {
                     .overflow_y_scrollbar(),
             )
             .child(
+                Button::new("app-preferences")
+                    .icon(IconName::Settings)
+                    .ghost()
+                    .compact()
+                    .accessibility_label("App preferences")
+                    // Kit centres a button's content in a box that fills it, so
+                    // the label takes the leftover width to sit against the icon
+                    // rather than being centred with it.
+                    .child(ui::button_label("App preferences", theme::text::BODY).flex_1())
+                    .selected(self.page == Page::Preferences)
+                    .on_click(cx.listener(|view, _, _, cx| view.open_preferences(cx))),
+            )
+            .child(
                 // Re-reading the mouse belongs to the agent, not to the page,
                 // so the control sits with the connection it acts on.
                 div()
@@ -641,7 +676,7 @@ impl SettingsView {
         let compact = width < px(808.0);
         let status = self
             .active_editor()
-            .filter(|_| self.snapshot_visible())
+            .filter(|_| self.snapshot_visible() && self.page != Page::Preferences)
             .and_then(|editor| {
                 let editor = editor.read(cx);
                 editor
@@ -649,7 +684,9 @@ impl SettingsView {
                     .clone()
                     .map(|message| (message, editor.failed))
             });
-        let body = if self.loading {
+        let body = if self.page == Page::Preferences {
+            self.render_preferences(cx).into_any_element()
+        } else if self.loading {
             self.render_loading().into_any_element()
         } else if self.error.is_some() {
             self.render_empty().into_any_element()
@@ -660,6 +697,23 @@ impl SettingsView {
         } else {
             self.render_empty().into_any_element()
         };
+        // The preferences page has neither pages to switch between nor changes
+        // to apply, so it goes without the bar rather than under an empty one.
+        let bar = (self.page != Page::Preferences).then(|| {
+            div()
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .gap_4()
+                .px(px(22.0))
+                .when(compact, |el| el.flex_wrap().py_2())
+                .when(!compact, |el| el.h(px(66.0)))
+                .border_b_1()
+                .border_color(rgb(LINE))
+                .child(self.render_tabs(compact, cx))
+                .child(div().flex_1())
+                .child(self.render_actions(cx))
+        });
         div()
             .min_w_0()
             .flex_1()
@@ -667,21 +721,7 @@ impl SettingsView {
             .flex()
             .flex_col()
             .bg(rgb(BG))
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .gap_4()
-                    .px(px(22.0))
-                    .when(compact, |el| el.flex_wrap().py_2())
-                    .when(!compact, |el| el.h(px(66.0)))
-                    .border_b_1()
-                    .border_color(rgb(LINE))
-                    .child(self.render_tabs(compact, cx))
-                    .child(div().flex_1())
-                    .child(self.render_actions(cx)),
-            )
+            .children(bar)
             .when_some(status, |el, (message, failed)| {
                 el.child(
                     div()
@@ -704,7 +744,13 @@ impl SettingsView {
     }
 
     /// Custom tabs whose active underline shares the top bar's existing rule.
+    ///
+    /// The preferences page has none: the tabs are a device's pages, and it is
+    /// not one. Picking a device in the sidebar is the way back to them.
     fn render_tabs(&self, compact: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.page == Page::Preferences {
+            return div().into_any_element();
+        }
         let tabs = [
             (Page::Performance, "Performance"),
             (Page::Details, "Device details"),
@@ -738,6 +784,7 @@ impl SettingsView {
             .when(compact, |el| el.w_full().h(px(46.0)))
             .when(!compact, |el| el.h_full())
             .children(tabs)
+            .into_any_element()
     }
 
     /// The right of the top bar: what is pending, and what to do about it.
@@ -750,7 +797,8 @@ impl SettingsView {
             .gap_2()
             .flex_shrink_0()
             .when_some(
-                self.active_editor().filter(|_| self.snapshot_visible()),
+                self.active_editor()
+                    .filter(|_| self.snapshot_visible() && self.page != Page::Preferences),
                 |bar, editor| {
                     let discard = editor.clone();
                     bar.child(
@@ -777,8 +825,8 @@ impl SettingsView {
                             .accessibility_label("Discard")
                             .child(ui::button_label("Discard", theme::text::BODY))
                             .disabled(busy || dirty == 0)
-                            .on_click(cx.listener(move |_, _, window, cx| {
-                                discard.update(cx, |editor, cx| editor.discard(window, cx))
+                            .on_click(cx.listener(move |view, _, window, cx| {
+                                view.confirm_device_action(discard.clone(), true, window, cx)
                             })),
                     )
                     .child(
@@ -808,8 +856,8 @@ impl SettingsView {
                                     || self.loading
                                     || self.selected_state().is_none(),
                             )
-                            .on_click(cx.listener(move |_, _, window, cx| {
-                                editor.update(cx, |editor, cx| editor.apply(window, cx))
+                            .on_click(cx.listener(move |view, _, window, cx| {
+                                view.confirm_device_action(editor.clone(), false, window, cx)
                             })),
                     )
                 },
@@ -1207,6 +1255,7 @@ impl Render for SettingsView {
                 (window.viewport_size().width - SIDEBAR_WIDTH).max(px(0.0)),
                 cx,
             ))
+            .children(Root::render_dialog_layer(window, cx))
             .when(self.show_fps, |el| {
                 // Bottom right: the HUD's own top-right default sits over the
                 // header's Discard and Apply buttons.
@@ -1467,7 +1516,12 @@ fn main() {
             } else {
                 "ctrl-alt-f"
             };
-            cx.bind_keys([KeyBinding::new(toggle_fps, ToggleFps, None)]);
+            cx.bind_keys([
+                KeyBinding::new(toggle_fps, ToggleFps, None),
+                // Dialogs default to Cancel: Enter must never accidentally send
+                // hardware writes or throw away a draft. Explicit buttons act.
+                KeyBinding::new("enter", gpui_kit::component::dialog::Cancel, Some("Dialog")),
+            ]);
 
             let bounds = Bounds::centered(None, size(px(1220.0), px(820.0)), cx);
             let window = cx.open_window(

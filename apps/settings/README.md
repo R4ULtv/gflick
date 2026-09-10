@@ -50,6 +50,30 @@ writes may remain after an error. The form shows the read-back and retains faile
 or unattempted edits for review and retry. A failed final read is reported as an
 error, never as a successful apply.
 
+## App preferences
+
+Open **App preferences** in the sidebar. Changes save immediately to
+`gflick/settings-client.json` in the user configuration directory, separately
+from the agent's mouse settings.
+
+- **Launch at sign in** controls the agent's macOS LaunchAgent or Windows login
+  entry and reflects the existing system setting.
+- **Show tray icon** starts or stops GFlick Tray independently of the agent and
+  enables or disables the tray’s own login entry. It reflects the existing tray
+  configuration. First-run setup enables both login items once; later launches
+  preserve the user’s choice. Closing Settings does not start the tray. Build or
+  install `gflick-tray` alongside the settings binary to enable it.
+- **Confirm Apply**, **Confirm Discard**, and **Confirm profile writes** default
+  to off. Enabled confirmations show the device and pending changes; Cancel
+  leaves the draft intact. Enter and Escape cancel; use the explicit Apply or
+  Discard button to proceed. The profile option asks when applying hardware changes
+  under onboard control or selecting an onboard profile; stored profile contents
+  are not edited by this client.
+- **Agent** shows the local connection status and offers Restart. Restart is
+  disabled while device changes are pending or being written. A standalone agent
+  must be installed or built alongside the settings binary; an installed macOS
+  LaunchAgent is restarted through launchctl.
+
 ## Interface and assets
 
 - Sidebar battery percentage and low-charge indicator; unknown charge shows a dash.

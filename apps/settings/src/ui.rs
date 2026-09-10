@@ -2,7 +2,7 @@
 use crate::theme::*;
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{Icon, Sizable as _};
-use gpui_kit::{Div, Pixels, SharedString, div, prelude::*, px, rgb};
+use gpui_kit::{AnyElement, Div, Pixels, SharedString, div, prelude::*, px, rgb};
 
 /// A panel for settings groups and info tables; it stays unclipped for focus rings.
 pub fn card() -> Div {
@@ -152,6 +152,19 @@ pub fn well() -> Div {
         .border_1()
         .border_color(rgb(LINE))
         .bg(rgb(DEEP))
+}
+
+/// A card's settings, ruled off from each other.
+///
+/// The header already rules the first row off, so only the rows after it carry
+/// a divider.
+pub fn card_rows(rows: Vec<AnyElement>) -> Div {
+    card_body().children(rows.into_iter().enumerate().map(|(index, row)| {
+        div()
+            .min_w_0()
+            .when(index > 0, |el| el.border_t_1().border_color(rgb(LINE_SOFT)))
+            .child(row)
+    }))
 }
 
 /// One setting: its copy on the left, its control on the right.
