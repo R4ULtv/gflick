@@ -107,6 +107,7 @@ mod tests {
             display_name: None,
             serial_number: None,
             nickname: None,
+            color: Default::default(),
             sort_order: None,
             connection: DeviceConnection::Receiver,
             device_index: 1,

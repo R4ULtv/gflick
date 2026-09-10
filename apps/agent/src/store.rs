@@ -74,13 +74,13 @@ pub struct DevicePreferences {
     /// Host-side display name. Never written to the device.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nickname: Option<String>,
+    /// Cosmetic enclosure color, keyed by physical hardware identity.
+    #[serde(default)]
+    pub color: protocol::DeviceColor,
     /// Host-side list position; `None` sorts after every ordered device.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<u32>,
-    /// Model name the mouse reported over HID++, cached so a sleeping or
-    /// disconnected device keeps its identity instead of falling back to the
-    /// receiver's USB product name. This is the hardware's own name and stays
-    /// distinct from `nickname`, so a renamed device can still show what it is.
+    /// HID++ model name cached for offline display, separate from the nickname.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -241,9 +241,7 @@ impl SettingsStore {
             .or_default()
     }
 
-    /// Replaces the complete user-defined device order. Every requested hardware
-    /// ID must already have stored preferences, and omitted devices become
-    /// unordered.
+    /// Replaces the device order; IDs must exist and omitted devices become unordered.
     pub fn replace_device_order(&mut self, hardware_ids: &[String]) -> Result<()> {
         let mut seen = BTreeSet::new();
         for (position, hardware_id) in hardware_ids.iter().enumerate() {
@@ -270,10 +268,8 @@ impl SettingsStore {
         Ok(())
     }
 
-    /// Resolves stored preferences for a device that has not been opened yet by
-    /// the USB identity recorded the last time it was ready. Exact identities win.
-    /// A missing serial may fall back to the same USB slot only when that match is
-    /// unique; ambiguity fails closed.
+    /// Resolves unopened devices by cached USB identity. Exact matches win;
+    /// serial-less fallback requires a unique USB slot match.
     pub fn resolve_device_by_usb_identity(
         &self,
         identity: &UsbIdentity,
@@ -429,6 +425,7 @@ mod tests {
             },
             lighting: None,
             nickname: None,
+            color: Default::default(),
             sort_order: None,
             cached_model_name: None,
             usb_identity: None,
@@ -448,6 +445,35 @@ mod tests {
             loaded.device("046d:unit:1077e69f"),
             Some(&sample_preferences())
         );
+    }
+
+    #[test]
+    fn color_survives_reload_and_legacy_preferences_default_to_black() {
+        let old: DevicePreferences = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.color, protocol::DeviceColor::Black);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        for color in [
+            protocol::DeviceColor::Black,
+            protocol::DeviceColor::White,
+            protocol::DeviceColor::Magenta,
+            protocol::DeviceColor::Cyan,
+            protocol::DeviceColor::Red,
+            protocol::DeviceColor::Blue,
+            protocol::DeviceColor::Lilac,
+            protocol::DeviceColor::Mint,
+        ] {
+            let mut store = SettingsStore::load(path.clone()).unwrap();
+            store.device_mut("physical-mouse-a").color = color;
+            store.device_mut("physical-mouse-b");
+            store.save().unwrap();
+            let loaded = SettingsStore::load(path.clone()).unwrap();
+            assert_eq!(loaded.device("physical-mouse-a").unwrap().color, color);
+            assert_eq!(
+                loaded.device("physical-mouse-b").unwrap().color,
+                protocol::DeviceColor::Black
+            );
+        }
     }
 
     #[test]

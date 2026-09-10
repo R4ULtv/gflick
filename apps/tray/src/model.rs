@@ -647,6 +647,7 @@ mod tests {
                 display_name: Some("PRO X Superlight 2".to_owned()),
                 serial_number: None,
                 nickname: None,
+                color: Default::default(),
                 sort_order: None,
                 connection: DeviceConnection::Receiver,
                 device_index: 1,
