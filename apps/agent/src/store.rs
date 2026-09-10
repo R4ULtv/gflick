@@ -155,6 +155,8 @@ struct SettingsDocument {
     version: u32,
     #[serde(default)]
     devices: BTreeMap<String, DevicePreferences>,
+    #[serde(default)]
+    app: protocol::AppPreferences,
 }
 
 #[derive(Deserialize)]
@@ -167,6 +169,7 @@ impl Default for SettingsDocument {
         Self {
             version: SETTINGS_VERSION,
             devices: BTreeMap::new(),
+            app: protocol::AppPreferences::default(),
         }
     }
 }
@@ -224,6 +227,44 @@ impl SettingsStore {
         };
 
         Ok(Self { path, document })
+    }
+
+    pub fn app_preferences(&self) -> protocol::AppPreferences {
+        self.document.app.clone()
+    }
+    pub fn set_app_preferences(&mut self, preferences: protocol::AppPreferences) -> Result<()> {
+        let previous = std::mem::replace(&mut self.document.app, preferences);
+        if let Err(e) = self.save() {
+            self.document.app = previous;
+            return Err(e);
+        }
+        Ok(())
+    }
+    pub fn saved_devices(&self) -> Vec<protocol::DeviceSummary> {
+        self.document
+            .devices
+            .iter()
+            .map(|(id, preferences)| {
+                let usb = preferences.usb_identity.as_ref();
+                protocol::DeviceSummary {
+                    id: format!("saved:{id}"),
+                    hardware_id: Some(id.clone()),
+                    vendor_id: usb.map_or(0x046d, |u| u.vendor_id),
+                    product_id: usb.map_or(0, |u| u.product_id),
+                    device_index: usb.map_or(0, |u| u.device_index),
+                    serial_number: usb.and_then(|u| u.serial_number.clone()),
+                    product_name: None,
+                    display_name: preferences.cached_model_name.clone(),
+                    nickname: preferences.nickname.clone(),
+                    color: preferences.color,
+                    sort_order: preferences.sort_order,
+                    // This is a saved identity, never a current transport report.
+                    connection: protocol::DeviceConnection::Receiver,
+                    availability: None,
+                    ready: false,
+                }
+            })
+            .collect()
     }
 
     pub fn path(&self) -> &Path {
@@ -397,6 +438,51 @@ fn quarantine_path(path: &Path) -> Result<PathBuf> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn app_and_mouse_settings_preserve_each_other() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(
+            &path,
+            r#"{"version":1,"app":{"confirm_apply":true,"startup_defaults_applied":true},"devices":{"mouse":{"nickname":"Desk","host":{"dpi":1600}}}}"#,
+        )
+        .unwrap();
+        let mut store = SettingsStore::load(path.clone()).unwrap();
+        assert!(store.app_preferences().confirm_apply);
+        assert!(store.app_preferences().startup_defaults_applied);
+        assert_eq!(store.device("mouse").unwrap().host.dpi, Some(1600));
+        let mut app = store.app_preferences();
+        app.confirm_discard = true;
+        store.set_app_preferences(app.clone()).unwrap();
+        store.device_mut("mouse").host.dpi = Some(800);
+        store.save().unwrap();
+        let reloaded = SettingsStore::load(path).unwrap();
+        assert_eq!(reloaded.app_preferences(), app);
+        assert_eq!(reloaded.device("mouse").unwrap().host.dpi, Some(800));
+        let saved = reloaded.saved_devices();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].nickname.as_deref(), Some("Desk"));
+        assert!(!saved[0].ready);
+    }
+    #[test]
+    fn failed_app_write_rolls_back_without_changing_devices() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let mut store = SettingsStore::load(path.clone()).unwrap();
+        store.device_mut("mouse").host.dpi = Some(800);
+        let previous = store.app_preferences();
+        fs::create_dir(&path).unwrap();
+        assert!(
+            store
+                .set_app_preferences(protocol::AppPreferences {
+                    confirm_apply: true,
+                    ..previous.clone()
+                })
+                .is_err()
+        );
+        assert_eq!(store.app_preferences(), previous);
+        assert_eq!(store.device("mouse").unwrap().host.dpi, Some(800));
+    }
     fn usb_identity(device_index: u8, serial_number: Option<&str>) -> UsbIdentity {
         UsbIdentity::new(
             0x046d,

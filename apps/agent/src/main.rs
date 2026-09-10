@@ -462,6 +462,16 @@ impl Agent {
         use protocol::RequestCommand;
 
         match command {
+            RequestCommand::ListSavedDevices => Ok(protocol::ResponseData::Devices {
+                devices: self.settings.saved_devices(),
+            }),
+            RequestCommand::GetAppPreferences => Ok(protocol::ResponseData::AppPreferences {
+                preferences: self.settings.app_preferences(),
+            }),
+            RequestCommand::SetAppPreferences { preferences } => {
+                self.settings.set_app_preferences(preferences)?;
+                Ok(protocol::ResponseData::Acknowledged)
+            }
             RequestCommand::Ping => Ok(protocol::ResponseData::Pong),
             RequestCommand::Shutdown => Ok(protocol::ResponseData::Acknowledged),
             RequestCommand::ListDevices => Ok(protocol::ResponseData::Devices {
@@ -949,6 +959,9 @@ fn update_preferences(
         protocol::RequestCommand::Ping
         | protocol::RequestCommand::Shutdown
         | protocol::RequestCommand::ListDevices
+        | protocol::RequestCommand::ListSavedDevices
+        | protocol::RequestCommand::GetAppPreferences
+        | protocol::RequestCommand::SetAppPreferences { .. }
         | protocol::RequestCommand::GetDevice { .. }
         | protocol::RequestCommand::Subscribe
         | protocol::RequestCommand::SetDeviceColor { .. }
@@ -1231,6 +1244,9 @@ fn command_device_id(command: &protocol::RequestCommand) -> Option<&str> {
         RequestCommand::Ping
         | RequestCommand::Shutdown
         | RequestCommand::ListDevices
+        | RequestCommand::ListSavedDevices
+        | RequestCommand::GetAppPreferences
+        | RequestCommand::SetAppPreferences { .. }
         | RequestCommand::Subscribe
         // Host-side metadata: deliberately exempt from the device-ready guard so a
         // device can be renamed while it is still initializing.
@@ -1257,6 +1273,9 @@ fn command_changes_settings(command: &protocol::RequestCommand) -> bool {
         protocol::RequestCommand::Ping
             | protocol::RequestCommand::Shutdown
             | protocol::RequestCommand::ListDevices
+        | protocol::RequestCommand::ListSavedDevices
+        | protocol::RequestCommand::GetAppPreferences
+        | protocol::RequestCommand::SetAppPreferences { .. }
             | protocol::RequestCommand::GetDevice { .. }
             | protocol::RequestCommand::Subscribe
             // These persist host-side metadata themselves and return no snapshot.

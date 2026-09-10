@@ -27,13 +27,22 @@ impl SettingsView {
                 services::startup_status(),
                 services::tray_status(),
                 services::ping(),
+                preferences::Preferences::load(),
             )
         });
         cx.spawn(async move |view: gpui_kit::WeakEntity<Self>, cx| {
-            let (startup, tray, online) = task.await;
+            let (startup, tray, online, preferences) = task.await;
             view.update(cx, |view, cx| {
                 view.service_busy = false;
                 view.agent_online = Some(online);
+                view.preferences_loaded = preferences.is_ok();
+                match preferences {
+                    Ok(preferences) => {
+                        view.preferences = preferences;
+                        view.preference_error = None;
+                    }
+                    Err(e) => view.preference_error = Some(format!("{e:#}")),
+                }
                 match tray {
                     Ok(enabled) => view.tray_enabled = Some(enabled),
                     Err(error) => {
@@ -62,7 +71,7 @@ impl SettingsView {
     /// flag is written whatever the outcome, so switching either one off later
     /// is not undone on the next launch.
     pub(crate) fn apply_startup_defaults(&mut self, cx: &mut Context<Self>) {
-        if self.preferences.startup_defaults_applied {
+        if !self.preferences_loaded || self.preferences.startup_defaults_applied {
             return;
         }
         self.service_busy = true;
@@ -92,6 +101,9 @@ impl SettingsView {
         .detach();
     }
     fn set_preference(&mut self, key: Preference, value: bool, cx: &mut Context<Self>) {
+        if !self.preferences_loaded {
+            return;
+        }
         let mut next = self.preferences.clone();
         match key {
             Preference::Apply => next.confirm_apply = value,
@@ -312,9 +324,14 @@ impl SettingsView {
                         .flex()
                         .items_center()
                         .gap_2()
-                        .child(Switch::new(id).checked(checked).on_click(cx.listener(
-                            move |view, checked, _, cx| view.set_preference(key, *checked, cx),
-                        )))
+                        .child(
+                            Switch::new(id)
+                                .checked(checked)
+                                .disabled(!self.preferences_loaded)
+                                .on_click(cx.listener(move |view, checked, _, cx| {
+                                    view.set_preference(key, *checked, cx)
+                                })),
+                        )
                         .child(ui::switch_state(checked)),
                 )
                 .into_any_element()

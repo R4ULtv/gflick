@@ -3,8 +3,10 @@ mod editor;
 /// Baked into the photos by `build.rs`; compiled here only to keep its test.
 #[cfg(test)]
 mod filter;
+mod history;
 mod icons;
 mod preferences;
+use preferences::PreferenceStore as _;
 mod preferences_page;
 mod preview;
 mod services;
@@ -61,11 +63,13 @@ enum Page {
 
 struct SettingsView {
     preferences: preferences::Preferences,
+    preferences_loaded: bool,
     preference_error: Option<String>,
     startup_enabled: Option<bool>,
     agent_online: Option<bool>,
     service_busy: bool,
     tray_enabled: Option<bool>,
+    disconnected: std::collections::BTreeSet<String>,
     editors: std::collections::BTreeMap<String, Entity<editor::Editor>>,
     subscriptions: Vec<gpui_kit::Subscription>,
     logo: Option<std::sync::Arc<RenderImage>>,
@@ -84,10 +88,59 @@ struct SettingsView {
 }
 
 /// One device as the sidebar draws it: name, link, and charge.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LinkState {
+    Ready,
+    Offline,
+    Disconnected,
+    Checking,
+    Unknown,
+    Error,
+}
+impl LinkState {
+    fn of(device: &DeviceSummary, disconnected: bool) -> Self {
+        if disconnected {
+            return Self::Disconnected;
+        }
+        match device.availability.as_ref() {
+            Some(DeviceAvailability::Initializing) => Self::Checking,
+            Some(DeviceAvailability::Unavailable {
+                reason: gflick_protocol::DeviceUnavailableReason::CommunicationError,
+                ..
+            }) => Self::Error,
+            _ if device.ready => Self::Ready,
+            _ => Self::Offline,
+        }
+    }
+    fn label(self, device: &DeviceSummary) -> &'static str {
+        match self {
+            Self::Ready => connection_label(device),
+            Self::Offline if device.connection == DeviceConnection::Receiver => {
+                "Mouse offline · Receiver connected"
+            }
+            Self::Offline => "USB connected · not responding",
+            Self::Disconnected => "USB disconnected",
+            Self::Checking => "Checking connection…",
+            Self::Unknown => "Connection unverified",
+            Self::Error => "USB connected · read error",
+        }
+    }
+    fn icon(self, device: &DeviceSummary) -> IconName {
+        match self {
+            Self::Disconnected => IconName::Unplug,
+            Self::Offline => offline_icon(device),
+            Self::Checking => IconName::RotateCw,
+            Self::Unknown | Self::Error => IconName::TriangleAlert,
+            Self::Ready => connection_icon(device),
+        }
+    }
+}
+
 fn device_card(
     device: &DeviceSummary,
     battery: Option<&gflick_protocol::BatteryState>,
     backdrop: u32,
+    status: LinkState,
 ) -> Div {
     div()
         .flex()
@@ -119,21 +172,24 @@ fn device_card(
                         .font_semibold()
                         .text_color(rgb(MUTED_2))
                         .child(
-                            Icon::new(connection_icon(device))
+                            Icon::new(status.icon(device))
                                 .with_size(px(11.0))
                                 .flex_shrink_0(),
                         )
-                        .child(connection_label(device)),
+                        .child(status.label(device)),
                 ),
         )
         // The bolt is edged in the card's own colour, so the card has to say
         // what it is painted.
-        .child(sidebar_battery(battery, device, backdrop))
+        .when(status == LinkState::Ready, |row| {
+            row.child(sidebar_battery(battery, device, backdrop))
+        })
 }
 
 /// A dragged device and the full card drawn under the pointer.
 #[derive(Clone)]
 struct DeviceDrag {
+    status: LinkState,
     device: DeviceSummary,
     battery: Option<gflick_protocol::BatteryState>,
 }
@@ -156,15 +212,20 @@ impl Render for DeviceDragCard {
         // Counter the pointer offset so the preview stays pinned to the sidebar rail.
         let origin_x = window.mouse_position().x - self.grab_x;
         div().child(
-            device_card(&self.drag.device, self.drag.battery.as_ref(), SELECTED_ROW)
-                .ml(SIDEBAR_PAD - origin_x)
-                // The card is off the sidebar now, so it carries its own surface
-                // and the width the rail gave it.
-                .w(SIDEBAR_WIDTH - SIDEBAR_PAD - SIDEBAR_PAD)
-                .bg(rgb(SELECTED_ROW))
-                .border_1()
-                .border_color(rgb(0x545a69))
-                .shadow_lg(),
+            device_card(
+                &self.drag.device,
+                self.drag.battery.as_ref(),
+                SELECTED_ROW,
+                self.drag.status,
+            )
+            .ml(SIDEBAR_PAD - origin_x)
+            // The card is off the sidebar now, so it carries its own surface
+            // and the width the rail gave it.
+            .w(SIDEBAR_WIDTH - SIDEBAR_PAD - SIDEBAR_PAD)
+            .bg(rgb(SELECTED_ROW))
+            .border_1()
+            .border_color(rgb(0x545a69))
+            .shadow_lg(),
         )
     }
 }
@@ -174,12 +235,14 @@ impl SettingsView {
         let loaded = preferences::Preferences::load();
         let preference_error = loaded.as_ref().err().map(|e| format!("{e:#}"));
         let mut view = Self {
+            preferences_loaded: loaded.is_ok(),
             preferences: loaded.unwrap_or_default(),
             preference_error,
             startup_enabled: None,
             agent_online: None,
             service_busy: false,
             tray_enabled: None,
+            disconnected: Default::default(),
             editors: Default::default(),
             subscriptions: Vec::new(),
             logo: None,
@@ -247,7 +310,16 @@ impl SettingsView {
     }
 
     fn adopt(&mut self, snapshot: Snapshot) {
-        self.devices = snapshot.devices;
+        let selected_hardware = self.selected_summary().and_then(|d| d.hardware_id.clone());
+        (self.devices, self.disconnected) = history::merge(&snapshot.saved, snapshot.devices);
+        if let Some(hardware) = selected_hardware
+            && let Some(device) = self
+                .devices
+                .iter()
+                .find(|d| d.hardware_id.as_ref() == Some(&hardware))
+        {
+            self.selected_id = Some(device.id.clone());
+        }
         self.states = snapshot.states;
 
         let selection_is_valid = self
@@ -409,6 +481,13 @@ impl SettingsView {
     }
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let rows = self.devices.iter().enumerate().map(|(index, device)| {
+            let status = if self.loading {
+                LinkState::Checking
+            } else if self.error.is_some() {
+                LinkState::Unknown
+            } else {
+                LinkState::of(device, self.disconnected.contains(&device.id))
+            };
             let battery = self
                 .states
                 .iter()
@@ -418,10 +497,12 @@ impl SettingsView {
             let selected = self.selected_id.as_deref() == Some(device.id.as_str());
             // A device the agent has not identified has no position to save, so
             // it cannot be dragged — but it can still be dragged past.
-            let drag = device.hardware_id.is_some().then(|| DeviceDrag {
-                device: device.clone(),
-                battery: battery.cloned(),
-            });
+            let drag =
+                (device.hardware_id.is_some() && self.snapshot_visible()).then(|| DeviceDrag {
+                    status,
+                    device: device.clone(),
+                    battery: battery.cloned(),
+                });
             // Where this row would take the drop, if anywhere: above it for a
             // device coming up from below, below it for one coming down.
             let landing = self
@@ -481,6 +562,7 @@ impl SettingsView {
                     device,
                     battery,
                     if selected { SELECTED_ROW } else { DEEP },
+                    status,
                 ))
         });
         let release =
@@ -574,7 +656,7 @@ impl SettingsView {
                     // The list scrolls, and a scroll box clips what leaves it.
                     // This is the room a drop line above the first row needs.
                     .pt(px(6.0))
-                    .when(self.snapshot_visible(), |el| el.children(rows))
+                    .children(rows)
                     .when(self.loading, |el| {
                         el.child(
                             div()
@@ -676,7 +758,11 @@ impl SettingsView {
         let compact = width < px(808.0);
         let status = self
             .active_editor()
-            .filter(|_| self.snapshot_visible() && self.page != Page::Preferences)
+            .filter(|_| {
+                self.snapshot_visible()
+                    && self.page != Page::Preferences
+                    && self.selected_state().is_some()
+            })
             .and_then(|editor| {
                 let editor = editor.read(cx);
                 editor
@@ -797,8 +883,11 @@ impl SettingsView {
             .gap_2()
             .flex_shrink_0()
             .when_some(
-                self.active_editor()
-                    .filter(|_| self.snapshot_visible() && self.page != Page::Preferences),
+                self.active_editor().filter(|_| {
+                    self.snapshot_visible()
+                        && self.page != Page::Preferences
+                        && self.selected_state().is_some()
+                }),
                 |bar, editor| {
                     let discard = editor.clone();
                     bar.child(
@@ -1113,17 +1202,29 @@ impl SettingsView {
     }
 
     fn render_unavailable(&self, device: &DeviceSummary) -> impl IntoElement {
-        let detail = match device.availability.as_ref() {
-            Some(DeviceAvailability::Initializing) => "The agent is reading this device.",
-            Some(DeviceAvailability::Unavailable { detail, .. }) => detail.as_str(),
-            _ => "The device is not ready yet.",
+        let disconnected = self.disconnected.contains(&device.id);
+        let detail = if disconnected {
+            "USB disconnected. Reconnect the mouse or its receiver, then refresh."
+        } else {
+            match device.availability.as_ref() {
+                Some(DeviceAvailability::Initializing) => "The agent is reading this device.",
+                Some(DeviceAvailability::Unavailable {
+                    reason: gflick_protocol::DeviceUnavailableReason::NotResponding,
+                    ..
+                }) if device.connection == DeviceConnection::Receiver => {
+                    "Receiver connected, mouse offline. The mouse may be switched off, asleep, or out of range."
+                }
+                Some(DeviceAvailability::Unavailable { detail, .. }) => detail.as_str(),
+                _ => "The device is not ready yet.",
+            }
         };
         // A device still being read is not a device that has gone quiet, so
         // only the second of those two earns the glyph.
-        let silent = matches!(
-            device.availability.as_ref(),
-            Some(DeviceAvailability::Unavailable { .. })
-        );
+        let silent = disconnected
+            || matches!(
+                device.availability.as_ref(),
+                Some(DeviceAvailability::Unavailable { .. })
+            );
 
         div()
             .size_full()
@@ -1138,9 +1239,13 @@ impl SettingsView {
             )
             .when(silent, |el| {
                 el.child(
-                    Icon::new(offline_icon(device))
-                        .with_size(px(30.0))
-                        .text_color(rgb(MUTED_2)),
+                    Icon::new(if disconnected {
+                        IconName::Unplug
+                    } else {
+                        offline_icon(device)
+                    })
+                    .with_size(px(30.0))
+                    .text_color(rgb(MUTED_2)),
                 )
             })
             .child(centered_message(device_label(device), detail))
@@ -1545,4 +1650,28 @@ fn main() {
 
             cx.activate(true);
         });
+}
+
+#[cfg(test)]
+mod connection_tests {
+    use super::*;
+    #[test]
+    fn distinguishes_missing_usb_from_a_silent_receiver_and_read_errors() {
+        let mut device = test_support::device().device;
+        device.ready = false;
+        device.connection = DeviceConnection::Receiver;
+        device.availability = Some(DeviceAvailability::Unavailable {
+            reason: gflick_protocol::DeviceUnavailableReason::NotResponding,
+            detail: "Timed out".into(),
+        });
+        assert!(LinkState::of(&device, false) == LinkState::Offline);
+        assert!(LinkState::of(&device, true) == LinkState::Disconnected);
+        device.availability = Some(DeviceAvailability::Initializing);
+        assert!(LinkState::of(&device, false) == LinkState::Checking);
+        device.availability = Some(DeviceAvailability::Unavailable {
+            reason: gflick_protocol::DeviceUnavailableReason::CommunicationError,
+            detail: "Read failed".into(),
+        });
+        assert!(LinkState::of(&device, false) == LinkState::Error);
+    }
 }

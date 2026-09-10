@@ -8,6 +8,7 @@ use gflick_protocol::{DeviceState, DeviceSummary, RequestCommand, ResponseData};
 pub struct Snapshot {
     pub devices: Vec<DeviceSummary>,
     pub states: Vec<DeviceState>,
+    pub saved: Vec<DeviceSummary>,
 }
 
 /// Reads the current device list and full state for every ready mouse.
@@ -29,7 +30,15 @@ pub fn load_snapshot() -> Result<Snapshot> {
         })
         .collect::<Result<Vec<_>>>()?;
 
-    Ok(Snapshot { devices, states })
+    let ResponseData::Devices { devices: saved } = request(RequestCommand::ListSavedDevices)?
+    else {
+        bail!("The agent did not return saved devices. Rebuild and restart the agent.");
+    };
+    Ok(Snapshot {
+        devices,
+        states,
+        saved,
+    })
 }
 
 /// Saves the full hardware-ID order; unidentified devices remain unordered.

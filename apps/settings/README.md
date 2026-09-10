@@ -52,9 +52,11 @@ error, never as a successful apply.
 
 ## App preferences
 
-Open **App preferences** in the sidebar. Changes save immediately to
-`gflick/settings-client.json` in the user configuration directory, separately
-from the agent's mouse settings.
+Open **App preferences** in the sidebar. Changes save immediately through the
+agent into the `app` section of `gflick/settings.json`, alongside `devices`.
+The agent is the sole writer, so a client preference update preserves device
+settings and a hardware update preserves app preferences. The agent must be
+running to read or change preferences.
 
 - **Launch at sign in** controls the agent's macOS LaunchAgent or Windows login
   entry and reflects the existing system setting.
@@ -76,6 +78,12 @@ from the agent's mouse settings.
 
 ## Interface and assets
 
+- Previously seen mice remain in the sidebar, including after a restart. Identity
+  identities come from the agent’s `settings.json` device entries, without a
+  separate client history file.
+  “Mouse offline · receiver connected” distinguishes a silent wireless mouse
+  from “USB disconnected.” Connection changes are verified on Refresh; loading
+  or failed reads keep rows visible with unverified status and no stale battery.
 - Sidebar battery percentage and low-charge indicator; unknown charge shows a dash.
 - Performance and Device details tabs, with a stacked layout at narrower widths.
 - Website logo rendered at display resolution and package-derived app version.

@@ -20,6 +20,11 @@ pub enum RequestCommand {
     Ping,
     Shutdown,
     ListDevices,
+    ListSavedDevices,
+    GetAppPreferences,
+    SetAppPreferences {
+        preferences: AppPreferences,
+    },
     GetDevice {
         device_id: String,
     },
@@ -85,6 +90,25 @@ pub enum RequestCommand {
         /// Ordered saved IDs; omissions clear positions, and duplicates/unknowns fail.
         hardware_ids: Vec<String>,
     },
+}
+
+/// Host application preferences stored by the agent alongside mouse settings.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AppPreferences {
+    pub confirm_apply: bool,
+    pub confirm_discard: bool,
+    pub confirm_profile_writes: bool,
+    pub startup_defaults_applied: bool,
+}
+impl AppPreferences {
+    pub fn needs_confirmation(&self, discard: bool, profile_write: bool) -> bool {
+        if discard {
+            self.confirm_discard
+        } else {
+            self.confirm_apply || (self.confirm_profile_writes && profile_write)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -196,6 +220,7 @@ pub enum ResponseResult {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ResponseData {
     Pong,
+    AppPreferences { preferences: AppPreferences },
     Subscribed,
     Acknowledged,
     Devices { devices: Vec<DeviceSummary> },

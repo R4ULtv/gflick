@@ -2368,8 +2368,6 @@ dependencies = [
  "gpui-kit",
  "image",
  "plist",
- "serde",
- "serde_json",
  "sysinfo 0.36.1",
  "tempfile",
 ]
