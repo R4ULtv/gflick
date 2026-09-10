@@ -1,0 +1,26 @@
+[package]
+name = "gflick-settings"
+version = "0.2.0"
+edition.workspace = true
+license.workspace = true
+# GPUI Kit follows Zed's current stable toolchain rather than the core workspace MSRV.
+rust-version = "1.97.1"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+gflick-client.workspace = true
+gflick-protocol.workspace = true
+# GPUI, GPUI Platform and GPUI Component in one released crate, so the UI no
+# longer tracks Zed's default branch. https://gpui-kit.com
+gpui-kit = "0.6.1"
+# Frame time / CPU / memory HUD for the window, toggled with `GFLICK_FPS=1`.
+# https://gpui-kit.com/docs/fps/
+gpui-fps = "0.6.1"
+image = { workspace = true }
+
+[build-dependencies]
+image = { workspace = true, features = ["webp", "png"] }

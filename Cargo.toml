@@ -4,6 +4,7 @@ members = [
     "apps/bench",
     "apps/cli",
     "apps/probe",
+    "apps/settings",
     "apps/setup",
     "apps/tray",
     "crates/gflick-client",
@@ -45,3 +46,9 @@ tempfile = "3.20.0"
 tray-icon = { version = "0.24.2", default-features = false }
 winit = { version = "0.30.12", default-features = false, features = ["rwh_06"] }
 winresource = "0.1"
+
+# Prefiltering the device photos runs ~30x slower unoptimized, and the settings
+# build script does it with `image`, whose resize is generic and so lands in the
+# caller. build-override covers a build script and its dependencies together.
+[profile.dev.build-override]
+opt-level = 3
