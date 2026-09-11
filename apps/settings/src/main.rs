@@ -70,7 +70,19 @@ const SELECTED_ROW: u32 = 0x30343f;
 const LOGO_SIZE: f32 = 32.0;
 const LOGO_SVG: &[u8] = include_bytes!("../../../website/public/favicon.svg");
 
-actions!(gflick_settings, [ToggleFps]);
+actions!(gflick_settings, [ToggleFps, ToggleSidebar]);
+
+/// The sidebar's shortcut, and the way it is written in a tooltip.
+const SIDEBAR_KEY: &str = if cfg!(target_os = "macos") {
+    "cmd-b"
+} else {
+    "ctrl-b"
+};
+const SIDEBAR_KEY_HINT: &str = if cfg!(target_os = "macos") {
+    "\u{2318}B"
+} else {
+    "Ctrl+B"
+};
 
 /// Set to any non-empty value to open with the performance HUD already up.
 const FPS_ENV: &str = "GFLICK_FPS";
@@ -112,6 +124,9 @@ struct SettingsView {
     /// what the release commits.
     drop_hint: Option<DropHint>,
     show_fps: bool,
+    /// The window's own focus. Keystrokes dispatch along the focus path, so
+    /// without it nothing reaches the actions bound below.
+    focus: gpui_kit::FocusHandle,
     /// Whether the device list is down to its rail.
     sidebar_collapsed: bool,
 }
@@ -294,6 +309,7 @@ impl SettingsView {
             error: None,
             drop_hint: None,
             show_fps: std::env::var_os(FPS_ENV).is_some_and(|value| !value.is_empty()),
+            focus: cx.focus_handle(),
         };
         view.start_live(cx);
         view.apply_startup_defaults(cx);
@@ -723,11 +739,14 @@ impl SettingsView {
             .ghost()
             .size(px(30.0))
             .p_0()
-            .tooltip(if collapsed {
-                "Open sidebar"
-            } else {
-                "Compact sidebar"
-            })
+            .tooltip(SharedString::from(format!(
+                "{} \u{b7} {SIDEBAR_KEY_HINT}",
+                if collapsed {
+                    "Open sidebar"
+                } else {
+                    "Compact sidebar"
+                }
+            )))
             .accessibility_label(if collapsed {
                 "Open sidebar"
             } else {
@@ -1687,16 +1706,13 @@ impl Render for SettingsView {
         self.preview
             .update(cx, |preview, cx| preview.set_model(model, color, cx));
         div()
+            .track_focus(&self.focus)
             // `fps_monitor` pins itself absolutely, so its parent must be relative.
             .relative()
             .size_full()
             .flex()
             .font_family(".SystemUIFont")
             .bg(rgb(BG))
-            .on_action(cx.listener(|view: &mut Self, _: &ToggleFps, _, cx| {
-                view.show_fps = !view.show_fps;
-                cx.notify();
-            }))
             .child(self.render_sidebar(cx))
             .child(self.render_content(content_width, cx))
             .children(Root::render_dialog_layer(window, cx))
@@ -1967,22 +1983,36 @@ fn main() {
             };
             cx.bind_keys([
                 KeyBinding::new(toggle_fps, ToggleFps, None),
+                KeyBinding::new(SIDEBAR_KEY, ToggleSidebar, None),
                 // Dialogs default to Cancel: Enter must never accidentally send
                 // hardware writes or throw away a draft. Explicit buttons act.
                 KeyBinding::new("enter", gpui_kit::component::dialog::Cancel, Some("Dialog")),
             ]);
 
             let bounds = Bounds::centered(None, size(px(1220.0), px(820.0)), cx);
+            // The view is built inside the window's builder; the shortcuts
+            // registered after it need a way back to it.
+            let view_slot: std::rc::Rc<
+                std::cell::RefCell<Option<gpui_kit::WeakEntity<SettingsView>>>,
+            > = Default::default();
             let window = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     window_min_size: Some(size(px(840.0), px(640.0))),
                     ..Default::default()
                 },
-                |window, cx| {
-                    window.set_window_title("GFlick Settings");
-                    let view: Entity<SettingsView> = cx.new(SettingsView::new);
-                    cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
+                {
+                    let slot = view_slot.clone();
+                    move |window, cx| {
+                        window.set_window_title("GFlick Settings");
+                        let view: Entity<SettingsView> = cx.new(SettingsView::new);
+                        // Nothing else claims focus at launch, and an unfocused
+                        // window dispatches keystrokes nowhere.
+                        let focus = view.read(cx).focus.clone();
+                        window.focus(&focus, cx);
+                        *slot.borrow_mut() = Some(view.downgrade());
+                        cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
+                    }
                 },
             );
 
@@ -1990,6 +2020,23 @@ fn main() {
                 eprintln!("failed to open the GFlick settings window: {error:#}");
                 cx.quit();
                 return;
+            }
+
+            // Actions dispatch along the focus path, which moves to whatever in
+            // the window was last clicked. These are the window's own shortcuts
+            // rather than any one element's, so they are registered globally and
+            // run wherever focus happens to be.
+            if let Some(view) = view_slot.borrow().clone() {
+                let fps = view.clone();
+                cx.on_action::<ToggleFps>(move |_, cx| {
+                    let _ = fps.update(cx, |view, cx| {
+                        view.show_fps = !view.show_fps;
+                        cx.notify();
+                    });
+                });
+                cx.on_action::<ToggleSidebar>(move |_, cx| {
+                    let _ = view.update(cx, |view, cx| view.toggle_sidebar(cx));
+                });
             }
 
             cx.activate(true);
