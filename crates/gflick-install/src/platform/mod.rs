@@ -202,7 +202,7 @@ fn request_tray_shutdown_at(
 }
 
 fn read_handshake_token(path: &Path) -> Result<Option<String>> {
-    let contents = match fs::read_to_string(path) {
+    let contents = match retry_handshake_read(|| fs::read_to_string(path)) {
         Ok(contents) => contents,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
@@ -220,6 +220,27 @@ fn read_handshake_token(path: &Path) -> Result<Option<String>> {
         return Ok(None);
     }
     Ok(Some(token.to_owned()))
+}
+
+fn retry_handshake_read(
+    mut read: impl FnMut() -> std::io::Result<String>,
+) -> std::io::Result<String> {
+    // Windows can report AccessDenied while the tray's deletion is pending,
+    // or a sharing violation while another handle is open. Retry briefly so
+    // deletion can settle to NotFound, but preserve persistent access errors.
+    for retry in 0..=5 {
+        match read() {
+            Err(error)
+                if retry < 5
+                    && (error.kind() == std::io::ErrorKind::PermissionDenied
+                        || (cfg!(windows) && matches!(error.raw_os_error(), Some(32 | 33)))) =>
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+            result => return result,
+        }
+    }
+    unreachable!("the final read returns without retrying")
 }
 
 fn remove_matching_request(path: &Path, generation: &str) -> Result<()> {
@@ -246,6 +267,62 @@ compile_error!("gflick-install supports only Windows and Apple Silicon macOS");
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn handshake_read_retries_pending_deletion_until_not_found() {
+        let mut reads = 0;
+        let error = retry_handshake_read(|| {
+            reads += 1;
+            Err(std::io::Error::from(if reads < 3 {
+                std::io::ErrorKind::PermissionDenied
+            } else {
+                std::io::ErrorKind::NotFound
+            }))
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        assert_eq!(reads, 3);
+    }
+
+    #[test]
+    fn handshake_read_retries_temporary_access_denial() {
+        let mut reads = 0;
+        let contents = retry_handshake_read(|| {
+            reads += 1;
+            if reads == 1 {
+                Err(std::io::ErrorKind::PermissionDenied.into())
+            } else {
+                Ok("live-generation\n".to_owned())
+            }
+        })
+        .unwrap();
+        assert_eq!(contents, "live-generation\n");
+        assert_eq!(reads, 2);
+    }
+
+    #[test]
+    fn handshake_read_preserves_persistent_access_denial_after_bounded_retries() {
+        let mut reads = 0;
+        let error = retry_handshake_read(|| {
+            reads += 1;
+            Err(std::io::ErrorKind::PermissionDenied.into())
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(reads, 6);
+    }
+
+    #[test]
+    fn handshake_read_does_not_retry_unrelated_errors() {
+        let mut reads = 0;
+        let error = retry_handshake_read(|| {
+            reads += 1;
+            Err(std::io::ErrorKind::InvalidData.into())
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(reads, 1);
+    }
 
     #[test]
     fn closed_install_roots_resolve_only_inside_platform_paths() {
