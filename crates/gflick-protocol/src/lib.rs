@@ -115,6 +115,9 @@ pub struct AppPreferences {
     pub confirm_discard: bool,
     pub confirm_profile_writes: bool,
     pub startup_defaults_applied: bool,
+    /// Whether the device list is collapsed to its rail. A window's shape is
+    /// the owner's choice, so it outlives the window.
+    pub sidebar_collapsed: bool,
 }
 impl Default for AppPreferences {
     fn default() -> Self {
@@ -123,6 +126,7 @@ impl Default for AppPreferences {
             confirm_discard: false,
             confirm_profile_writes: true,
             startup_defaults_applied: false,
+            sidebar_collapsed: false,
         }
     }
 }
@@ -573,6 +577,13 @@ mod tests {
         assert!(!saved.confirm_apply);
         assert!(!saved.confirm_profile_writes);
         assert!(saved.confirm_discard);
+        // A file written before the sidebar could be collapsed opens expanded.
+        assert!(!saved.sidebar_collapsed);
+        assert!(
+            serde_json::from_str::<AppPreferences>(r#"{"sidebar_collapsed":true}"#)
+                .unwrap()
+                .sidebar_collapsed
+        );
     }
 
     #[test]

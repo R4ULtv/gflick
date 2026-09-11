@@ -48,6 +48,18 @@ const PAGE_MAX_WIDE: Pixels = px(1560.0);
 const GRID_MIN_COLUMN: Pixels = px(560.0);
 /// The gutter between cards, across and down.
 const GRID_GAP: Pixels = px(16.0);
+/// The device list collapsed to a rail of glyphs, and the padding that holds
+/// them. Kit collapses its own sidebar to 48px; this one carries 36px targets.
+const SIDEBAR_RAIL_WIDTH: Pixels = px(56.0);
+const SIDEBAR_RAIL_PAD: Pixels = px(10.0);
+/// A rail target: square, so its mark sits in the middle of it.
+const RAIL_BUTTON: Pixels = px(36.0);
+/// How long the sidebar's state waits before it is written, so a burst of
+/// presses settles into one save.
+const SIDEBAR_SAVE_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
+/// The height of both headers: the sidebar's and the bar across from it. One
+/// band of chrome, so the two read as one line.
+const SIDEBAR_HEADER: Pixels = px(58.0);
 /// The sidebar's own padding. The dragged card is pinned to it, so the two have
 /// to agree.
 const SIDEBAR_PAD: Pixels = px(14.0);
@@ -80,6 +92,9 @@ struct SettingsView {
     tray_enabled: Option<bool>,
     disconnected: std::collections::BTreeSet<String>,
     live_task: Option<gpui_kit::Task<()>>,
+    /// The pending write of the sidebar's state. Held so a new press replaces
+    /// it instead of queueing behind it.
+    sidebar_save: Option<gpui_kit::Task<()>>,
     pending_live: Vec<live::Update>,
     refreshing: bool,
     editors: std::collections::BTreeMap<String, Entity<editor::Editor>>,
@@ -97,6 +112,8 @@ struct SettingsView {
     /// what the release commits.
     drop_hint: Option<DropHint>,
     show_fps: bool,
+    /// Whether the device list is down to its rail.
+    sidebar_collapsed: bool,
 }
 
 /// One device as the sidebar draws it: name, link, and charge.
@@ -246,9 +263,14 @@ impl SettingsView {
     fn new(cx: &mut Context<Self>) -> Self {
         let loaded = preferences::Preferences::load();
         let preference_error = loaded.as_ref().err().map(|e| format!("{e:#}"));
+        let preferences_loaded = loaded.is_ok();
+        let preferences = loaded.unwrap_or_default();
         let mut view = Self {
-            preferences_loaded: loaded.is_ok(),
-            preferences: loaded.unwrap_or_default(),
+            preferences_loaded,
+            // Read before the preferences are moved in: the window opens in
+            // the shape it was last left in.
+            sidebar_collapsed: preferences.sidebar_collapsed,
+            preferences,
             preference_error,
             startup_enabled: None,
             agent_online: None,
@@ -256,6 +278,7 @@ impl SettingsView {
             tray_enabled: None,
             disconnected: Default::default(),
             live_task: None,
+            sidebar_save: None,
             pending_live: Vec::new(),
             refreshing: false,
             editors: Default::default(),
@@ -578,20 +601,242 @@ impl SettingsView {
             .iter()
             .find(|state| state.device.id == selected_id)
     }
-    fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let rows = self.devices.iter().enumerate().map(|(index, device)| {
-            let status = if self.loading {
-                LinkState::Checking
-            } else if self.error.is_some() {
-                LinkState::Unknown
-            } else {
-                LinkState::of(device, self.disconnected.contains(&device.id))
+    /// How much room the device list is taking.
+    fn sidebar_width(&self) -> Pixels {
+        if self.sidebar_collapsed {
+            SIDEBAR_RAIL_WIDTH
+        } else {
+            SIDEBAR_WIDTH
+        }
+    }
+
+    fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
+        self.sidebar_collapsed = !self.sidebar_collapsed;
+        // A rail has no rows to land between, so a drag cannot survive the
+        // collapse it was caught by.
+        self.drop_hint = None;
+        cx.notify();
+        if !self.preferences_loaded {
+            return;
+        }
+        self.sidebar_save = Some(cx.spawn(async move |view: gpui_kit::WeakEntity<Self>, cx| {
+            cx.background_executor().timer(SIDEBAR_SAVE_SETTLE).await;
+            let Ok(next) = view.update(cx, |view, _| {
+                let mut next = view.preferences.clone();
+                next.sidebar_collapsed = view.sidebar_collapsed;
+                next
+            }) else {
+                return;
             };
-            let battery = self
-                .states
-                .iter()
-                .find(|state| state.device.id == device.id)
-                .and_then(|state| state.settings.battery.as_ref());
+            let saved = cx
+                .background_executor()
+                .spawn(async move { next.save().map(|()| next) })
+                .await;
+            let _ = view.update(cx, |view, cx| {
+                match saved {
+                    Ok(next) => {
+                        view.preferences = next;
+                        view.preference_error = None;
+                    }
+                    Err(error) => view.preference_error = Some(format!("{error:#}")),
+                }
+                cx.notify();
+            });
+        }));
+    }
+
+    /// The charge this device last reported, if it is one the agent has read.
+    fn battery_of(&self, device: &DeviceSummary) -> Option<&gflick_protocol::BatteryState> {
+        self.states
+            .iter()
+            .find(|state| state.device.id == device.id)
+            .and_then(|state| state.settings.battery.as_ref())
+    }
+
+    /// How a device's link reads right now. While the agent is being read,
+    /// every device is as unverified as the snapshot it came from.
+    fn link_state(&self, device: &DeviceSummary) -> LinkState {
+        if self.loading {
+            LinkState::Checking
+        } else if self.error.is_some() {
+            LinkState::Unknown
+        } else {
+            LinkState::of(device, self.disconnected.contains(&device.id))
+        }
+    }
+
+    /// One device as the rail draws it: its charge.
+    fn rail_device_mark(
+        &self,
+        device: &DeviceSummary,
+        status: LinkState,
+        selected: bool,
+    ) -> gpui_kit::AnyElement {
+        if !device.ready {
+            return Icon::new(status.icon(device))
+                .with_size(px(16.0))
+                .text_color(rgb(MUTED_2))
+                .into_any_element();
+        }
+        let battery = self.battery_of(device);
+        battery_cell(
+            battery.map(|b| b.percentage.min(100)),
+            battery_tone(battery, device),
+            if selected { SELECTED_ROW } else { DEEP },
+            charge(battery) == Charge::Charging,
+        )
+        .into_any_element()
+    }
+
+    fn sidebar_frame(&self, cx: &Context<Self>) -> Div {
+        let release =
+            |view: &mut Self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>| {
+                view.commit_drop(cx);
+            };
+        div()
+            .w(self.sidebar_width())
+            .flex_shrink_0()
+            .h_full()
+            .on_mouse_up(MouseButton::Left, cx.listener(release))
+            .on_mouse_up_out(MouseButton::Left, cx.listener(release))
+            .flex()
+            .flex_col()
+            .pb_4()
+            .bg(rgb(DEEP))
+            .border_r_1()
+            .border_color(rgb(0x353944))
+    }
+
+    /// Kit's own collapse control, so the affordance is the one it draws
+    /// everywhere else.
+    fn sidebar_toggle(&self, cx: &Context<Self>) -> Button {
+        let collapsed = self.sidebar_collapsed;
+        Button::new("sidebar-toggle")
+            .icon(
+                Icon::new(if collapsed {
+                    IconName::PanelLeftOpen
+                } else {
+                    IconName::PanelLeftClose
+                })
+                .size_4(),
+            )
+            .ghost()
+            .size(px(30.0))
+            .p_0()
+            .tooltip(if collapsed {
+                "Open sidebar"
+            } else {
+                "Compact sidebar"
+            })
+            .accessibility_label(if collapsed {
+                "Open sidebar"
+            } else {
+                "Compact sidebar"
+            })
+            .on_click(cx.listener(|view, _, _, cx| view.toggle_sidebar(cx)))
+    }
+
+    /// The collapsed sidebar: one glyph per device, named by its tooltip.
+    fn render_sidebar_rail(&self, cx: &Context<Self>) -> Div {
+        let devices = self.devices.iter().map(|device| {
+            let status = self.link_state(device);
+            let id = device.id.clone();
+            let selected = self.selected_id.as_deref() == Some(device.id.as_str());
+            Button::new(SharedString::from(format!("rail-{}", device.id)))
+                .ghost()
+                .size(RAIL_BUTTON)
+                .p_0()
+                .selected(selected)
+                .child(self.rail_device_mark(device, status, selected))
+                .tooltip(SharedString::from(match self.battery_of(device) {
+                    Some(battery) if device.ready => format!(
+                        "{} \u{b7} {}% \u{b7} {}",
+                        device_label(device),
+                        battery.percentage.min(100),
+                        status.label(device)
+                    ),
+                    _ => format!("{} \u{b7} {}", device_label(device), status.label(device)),
+                }))
+                .accessibility_label(SharedString::from(device_label(device)))
+                .on_click(cx.listener(move |view, _, _, cx| view.select(id.clone(), cx)))
+        });
+        self.sidebar_frame(cx)
+            .px(SIDEBAR_RAIL_PAD)
+            .items_center()
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .w_full()
+                    .h(SIDEBAR_HEADER)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(self.sidebar_toggle(cx)),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap_1()
+                    .children(devices)
+                    .overflow_y_scrollbar(),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(6.0))
+                    .mt_3()
+                    .child(
+                        Button::new("rail-preferences")
+                            .icon(IconName::Settings)
+                            .ghost()
+                            .size(RAIL_BUTTON)
+                            .p_0()
+                            .tooltip("App preferences")
+                            .accessibility_label("App preferences")
+                            .selected(self.page == Page::Preferences)
+                            .on_click(cx.listener(|view, _, _, cx| view.open_preferences(cx))),
+                    )
+                    .child(div().w_full().h(px(1.0)).bg(rgb(0x333741)).my(px(2.0)))
+                    .child(
+                        Button::new("rail-refresh")
+                            .icon(IconName::RotateCw)
+                            .ghost()
+                            .size(RAIL_BUTTON)
+                            .p_0()
+                            .tooltip("Read the mouse again")
+                            .accessibility_label("Refresh")
+                            .loading(self.loading)
+                            .disabled(
+                                self.loading || self.working(cx) || self.selected_dirty(cx) > 0,
+                            )
+                            .on_click(cx.listener(|view, _, _, cx| view.refresh(cx))),
+                    )
+                    // The agent's state, with nothing to spell it out: the
+                    // expanded footer is where the words are.
+                    .child(ui::dot(if self.error.is_some() {
+                        DANGER
+                    } else if self.loading {
+                        MUTED_2
+                    } else {
+                        SUCCESS
+                    })),
+            )
+    }
+
+    fn render_sidebar(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        if self.sidebar_collapsed {
+            return self.render_sidebar_rail(cx).into_any_element();
+        }
+        let rows = self.devices.iter().enumerate().map(|(index, device)| {
+            let status = self.link_state(device);
+            let battery = self.battery_of(device);
             let id = device.id.clone();
             let selected = self.selected_id.as_deref() == Some(device.id.as_str());
             // A device the agent has not identified has no position to save, so
@@ -664,39 +909,24 @@ impl SettingsView {
                     status,
                 ))
         });
-        let release =
-            |view: &mut Self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>| {
-                view.commit_drop(cx);
-            };
-        div()
-            .w(SIDEBAR_WIDTH)
-            .flex_shrink_0()
-            .h_full()
-            // A release ends the drag wherever it lands, so both the sidebar and
-            // everywhere else have to answer for it.
-            .on_mouse_up(MouseButton::Left, cx.listener(release))
-            .on_mouse_up_out(MouseButton::Left, cx.listener(release))
-            .flex()
-            .flex_col()
-            .pt(px(22.0))
+        self.sidebar_frame(cx)
             .px(SIDEBAR_PAD)
-            .pb_4()
-            .bg(rgb(DEEP))
-            .border_r_1()
-            .border_color(rgb(0x353944))
             .child(
                 div()
+                    .flex_shrink_0()
+                    .h(SIDEBAR_HEADER)
+                    .pl_2()
+                    // The glyph lines up with the charge cells down the list:
+                    // a card insets its content by 11, this button its icon by 7.
+                    .pr(px(4.0))
                     .flex()
                     .items_center()
                     .gap(px(10.0))
-                    .px_2()
-                    .pb(px(26.0))
                     .when_some(self.logo.clone(), |el, logo| {
                         el.child(gpui_kit::img(logo).size_8())
                     })
                     .child(
                         div()
-                            .flex_1()
                             .text_size(px(18.0))
                             .font_semibold()
                             .text_color(rgb(TEXT))
@@ -712,7 +942,9 @@ impl SettingsView {
                             .text_size(theme::text::MICRO)
                             .text_color(rgb(MUTED_2))
                             .child(concat!("v", env!("CARGO_PKG_VERSION"))),
-                    ),
+                    )
+                    .child(div().flex_1())
+                    .child(self.sidebar_toggle(cx)),
             )
             .child(
                 div()
@@ -720,6 +952,7 @@ impl SettingsView {
                     .items_center()
                     .justify_between()
                     .px_2()
+                    .mt(px(18.0))
                     .pb(px(4.0))
                     .child(
                         div()
@@ -848,6 +1081,7 @@ impl SettingsView {
                             .on_click(cx.listener(|view, _, _, cx| view.refresh(cx))),
                     ),
             )
+            .into_any_element()
     }
 
     /// Renders content at an explicit width because scroll children are unconstrained.
@@ -890,7 +1124,7 @@ impl SettingsView {
                 .px(px(28.0))
                 .py_2()
                 // Keep navigation and actions on one row unless the window cannot fit them.
-                .min_h(px(58.0))
+                .min_h(SIDEBAR_HEADER)
                 .flex_wrap()
                 .border_b_1()
                 .border_color(rgb(LINE))
@@ -1427,7 +1661,7 @@ impl Render for SettingsView {
             .and_then(preview::MouseModel::for_device)
             .unwrap_or(preview::MouseModel::Superlight2);
         let mut color = self.selected_summary().map(|d| d.color).unwrap_or_default();
-        let content_width = (window.viewport_size().width - SIDEBAR_WIDTH).max(px(0.0));
+        let content_width = (window.viewport_size().width - self.sidebar_width()).max(px(0.0));
         if let Some(editor) = self.active_editor() {
             editor.update(cx, |editor, cx| {
                 let details = self.page == Page::Details;
@@ -1502,20 +1736,25 @@ fn charge(battery: Option<&gflick_protocol::BatteryState>) -> Charge {
 }
 
 /// Sidebar charge level, with a bolt only for the otherwise invisible charging state.
-fn sidebar_battery(
-    battery: Option<&gflick_protocol::BatteryState>,
-    device: &DeviceSummary,
-    backdrop: u32,
-) -> impl IntoElement {
-    let percentage = battery.map(|battery| battery.percentage.min(100));
-    let color = match (charge(battery), percentage) {
+/// What a charge reads as: healthy, running out, or not reported at all.
+fn battery_tone(battery: Option<&gflick_protocol::BatteryState>, device: &DeviceSummary) -> u32 {
+    match (charge(battery), battery.map(|b| b.percentage.min(100))) {
         _ if !device.ready => MUTED_2,
         (Charge::Charging, _) => SUCCESS,
         (Charge::Low, _) => DANGER,
         (_, Some(0..=20)) => DANGER,
         (_, Some(_)) => SUCCESS,
         (_, None) => MUTED_2,
-    };
+    }
+}
+
+fn sidebar_battery(
+    battery: Option<&gflick_protocol::BatteryState>,
+    device: &DeviceSummary,
+    backdrop: u32,
+) -> impl IntoElement {
+    let percentage = battery.map(|battery| battery.percentage.min(100));
+    let color = battery_tone(battery, device);
     // A mouse that is not answering has no charge to report, so the readout
     // says why it is silent instead of drawing a cell it cannot fill.
     let mark = if device.ready {
