@@ -116,11 +116,7 @@ pub fn chip_accent(label: impl Into<SharedString>) -> Div {
     chip(label).bg(rgb(ACCENT_MUTED)).text_color(rgb(0xc7d0ff))
 }
 
-/// The word for a switch's state, set beside it.
-///
-/// The track alone carries the state by position and colour; the word says it
-/// outright. Both words are given one width, so a column of switches stays in
-/// line as they are flipped.
+/// An explicit, fixed-width switch state label that keeps columns aligned.
 pub fn switch_state(checked: bool) -> Div {
     div()
         .flex_shrink_0()
@@ -131,12 +127,7 @@ pub fn switch_state(checked: bool) -> Div {
         .child(if checked { "On" } else { "Off" })
 }
 
-/// The changes a confirmation is asking about: what each is called, what the
-/// device holds now, and what it would hold instead.
-///
-/// The old value stays in the row, dimmed. What a change replaces is half of
-/// what it is, and a list of bare new values cannot be checked against
-/// anything.
+/// Confirmation rows showing each setting's current and replacement values.
 pub fn change_list(rows: Vec<(SharedString, SharedString, SharedString)>) -> Div {
     div()
         .mt_1()
@@ -223,10 +214,7 @@ pub fn well() -> Div {
         .bg(rgb(DEEP))
 }
 
-/// A card's settings, ruled off from each other.
-///
-/// The header already rules the first row off, so only the rows after it carry
-/// a divider.
+/// Card settings with dividers only between rows.
 pub fn card_rows(rows: Vec<AnyElement>) -> Div {
     card_body().children(rows.into_iter().enumerate().map(|(index, row)| {
         div()
@@ -279,10 +267,7 @@ pub fn row_copy_badge(
         .when(!help.is_empty(), |el| {
             el.child(
                 div()
-                    // Wide enough for a sentence of help to stay on one line,
-                    // short of the measure where the eye loses its place. The
-                    // column is flex, so a row with a wide control takes this
-                    // back rather than crowding it.
+                    // Cap readable line length; flex yields space to wider controls.
                     .max_w(px(640.0))
                     .text_size(text::TINY)
                     .text_color(rgb(MUTED_2))

@@ -445,9 +445,7 @@ impl Editor {
         }
     }
 
-    /// A flag, as a switch, with the state spelled out next to it. Carries the
-    /// accent when on: unlike a segmented control, there is nothing else on it
-    /// to read the state from.
+    /// A switch with an explicit state label and accent when enabled.
     fn render_toggle(&self, spec: &Spec, value: &str, cx: &mut Context<Self>) -> impl IntoElement {
         let key = spec.key;
         let on = value == "on";

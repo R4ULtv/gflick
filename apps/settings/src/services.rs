@@ -214,11 +214,7 @@ fn launch_domain() -> Result<String> {
     }
     Ok(format!("gui/{}", String::from_utf8(output.stdout)?.trim()))
 }
-/// Reads one label out of `launchctl print-disabled`.
-///
-/// The state is spelled `disabled`/`enabled` on current macOS and `true`/`false`
-/// on older releases, so both are read. A label with no line is enabled: the
-/// list only records overrides.
+/// Reads one label from `launchctl print-disabled`, accepting old and new spellings.
 #[cfg(target_os = "macos")]
 fn is_disabled(text: &str, label: &str) -> bool {
     text.lines()

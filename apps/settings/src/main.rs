@@ -773,9 +773,7 @@ impl SettingsView {
                     .ghost()
                     .compact()
                     .accessibility_label("App preferences")
-                    // Kit centres a button's content in a box that fills it, so
-                    // the label takes the leftover width to sit against the icon
-                    // rather than being centred with it.
+                    // Fill the remaining width so Kit aligns the label with the icon.
                     .child(ui::button_label("App preferences", theme::text::BODY).flex_1())
                     .selected(self.page == Page::Preferences)
                     .on_click(cx.listener(|view, _, _, cx| view.open_preferences(cx))),
@@ -873,10 +871,7 @@ impl SettingsView {
         } else {
             self.render_empty().into_any_element()
         };
-        // The bar is the device's pages and the changes to them, so it stands
-        // only where those exist: not over preferences, and not over a device
-        // that is loading, missing or offline, which has nothing to switch
-        // between and nothing to apply.
+        // Show device navigation/actions only when a usable device page exists.
         let bar = (self.page != Page::Preferences && self.selected_state().is_some()).then(|| {
             div()
                 .flex_shrink_0()
@@ -885,9 +880,7 @@ impl SettingsView {
                 .gap_4()
                 .px(px(28.0))
                 .py_2()
-                // One row, at one height, whatever the window is doing: the
-                // pages and the actions belong on the same line. Wrapping is
-                // only the last resort, for a window too narrow to hold both.
+                // Keep navigation and actions on one row unless the window cannot fit them.
                 .min_h(px(58.0))
                 .flex_wrap()
                 .border_b_1()
@@ -925,15 +918,7 @@ impl SettingsView {
             .child(div().flex_1().min_h_0().child(body))
     }
 
-    /// The device's pages, as one segmented group.
-    ///
-    /// The same control the polling card uses for wired/wireless, because this
-    /// is the same kind of choice: two views of one device, not two
-    /// destinations. An underline had to be held a bar's height away from its
-    /// own label to sit on the rule; a group carries the selection on the word.
-    ///
-    /// The preferences page has none: the tabs are a device's pages, and it is
-    /// not one. Picking a device in the sidebar is the way back to them.
+    /// Device-page selector, hidden on app preferences.
     fn render_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
         if self.page == Page::Preferences {
             return div().into_any_element();
@@ -979,11 +964,7 @@ impl SettingsView {
             .into_any_element()
     }
 
-    /// The right of the top bar: what to do about what is pending.
-    ///
-    /// There is no readout beside the buttons, because the buttons are the
-    /// readout: the count rides on Apply, both go quiet when the mouse already
-    /// matches, and Apply says so itself while it is writing.
+    /// Pending-change actions; Apply carries the count and current write state.
     fn render_actions(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let busy = self.working(cx);
         let dirty = self.selected_dirty(cx);
@@ -1004,9 +985,7 @@ impl SettingsView {
                         Button::new("discard")
                             .outline()
                             .compact()
-                            // An undo arrow rather than a cross: the edits are
-                            // rolled back to what the mouse already holds, not
-                            // dismissed.
+                            // Undo restores the mouse's current values; it does not dismiss them.
                             .icon(IconName::Undo2)
                             .accessibility_label("Discard")
                             .child(ui::button_label("Discard", theme::text::BODY))
@@ -1339,9 +1318,7 @@ impl SettingsView {
             .items_center()
             .justify_center()
             .gap_6()
-            // The photo stands whichever page was open when the mouse went
-            // quiet: it is what the page is about, and there is nothing else
-            // here to look at.
+            // Keep the device photo visible when its mouse goes offline.
             .when(preview::MouseModel::for_device(device).is_some(), |el| {
                 el.child(div().w(px(320.0)).child(self.preview.clone()))
             })

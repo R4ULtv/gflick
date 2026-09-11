@@ -122,9 +122,7 @@ impl Render for MousePreview {
     fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let logical_height = self.model.photo(self.color).logical_height;
         let photo = self.texture(window.scale_factor());
-        // Artwork only. The caption belongs to whoever shows the photo: the
-        // details card names the model under it, while a page whose heading is
-        // already the device's name would be saying it twice.
+        // Callers own captions so pages do not repeat an existing device heading.
         div()
             .w_full()
             .h(px(280.0))

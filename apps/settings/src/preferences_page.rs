@@ -68,21 +68,14 @@ impl SettingsView {
         .detach();
         cx.notify();
     }
-    /// Turns both login items on the first time the app runs.
-    ///
-    /// They are on by default rather than opt-in, because a mouse whose owner
-    /// installed this app expects it to hold its settings across a reboot. The
-    /// flag is written whatever the outcome, so switching either one off later
-    /// is not undone on the next launch.
+    /// Enables both login items once, then records the attempt regardless of outcome.
     pub(crate) fn apply_startup_defaults(&mut self, cx: &mut Context<Self>) {
         if !self.preferences_loaded || self.preferences.startup_defaults_applied {
             return;
         }
         self.service_busy = true;
         let task = cx.background_executor().spawn(async {
-            // Failures are left to the switches to report. This runs before
-            // anyone has asked for it, so it is not the moment to raise an
-            // error over a login item.
+            // Let the switches report failures after this automatic first-run attempt.
             let _ = services::set_startup(true);
             let _ = services::set_tray(true);
             (services::startup_status(), services::tray_status())
@@ -245,9 +238,7 @@ impl SettingsView {
                     (
                         SharedString::new_static(spec.label),
                         display(&spec, &spec.value),
-                        // The unit is carried once, by the value that will
-                        // stand: twice in one row is noise, and never at all
-                        // leaves "0 → 300" for a timeout.
+                        // Show the unit once, on the replacement value.
                         if spec.unit.is_empty() || value.is_empty() {
                             to
                         } else {
@@ -290,12 +281,7 @@ impl SettingsView {
                 })
                 .description(description.clone())
                 .child(ui::change_list(rows.clone()))
-                // The same two buttons as the bar that opened this, at the same
-                // size and with the same glyphs, so the dialog reads as the
-                // press being confirmed rather than a second, unrelated choice.
-                // Discard carries the danger fill: it is the one that destroys
-                // work. Both dispatch the dialog's own actions, which is what
-                // runs `on_ok` and closes the layer.
+                // Mirror the action bar; dialog actions run `on_ok` and close the layer.
                 .footer(
                     DialogFooter::new()
                         .child(
@@ -417,9 +403,7 @@ impl SettingsView {
                 )
                 .into_any_element()
         };
-        // A switch standing for something outside the app — a login item, a
-        // running process. Its state has to be read before it can be shown, so
-        // the switch stays in place and says why it cannot be moved yet.
+        // External-service switches stay visible but disabled until their state loads.
         let service = |id: &'static str,
                        label: &'static str,
                        help: &'static str,
