@@ -39,6 +39,15 @@ use theme::{
 
 /// Width of the device list. The content pages need it to know their own.
 const SIDEBAR_WIDTH: Pixels = px(272.0);
+/// The widest a page runs before it is centred, in one column of cards and in
+/// two. A full-screen window is mostly margin at the narrower of the two.
+const PAGE_MAX: Pixels = px(1120.0);
+const PAGE_MAX_WIDE: Pixels = px(1560.0);
+/// A card column narrower than this crowds its rows, so the second column is
+/// only taken when both can have it.
+const GRID_MIN_COLUMN: Pixels = px(560.0);
+/// The gutter between cards, across and down.
+const GRID_GAP: Pixels = px(16.0);
 /// The sidebar's own padding. The dragged card is pinned to it, so the two have
 /// to agree.
 const SIDEBAR_PAD: Pixels = px(14.0);
@@ -1029,13 +1038,24 @@ impl SettingsView {
             )
     }
 
+    /// Whether the cards stand in two columns.
+    fn grid(&self, width: Pixels) -> bool {
+        self.page == Page::Performance
+            && width.min(PAGE_MAX_WIDE) - px(56.0) >= GRID_MIN_COLUMN + GRID_GAP + GRID_MIN_COLUMN
+    }
+
     fn render_device(&self, state: &DeviceState, width: Pixels, compact: bool) -> impl IntoElement {
         let details = self.page == Page::Details;
+        let page_max = if self.grid(width) {
+            PAGE_MAX_WIDE
+        } else {
+            PAGE_MAX
+        };
         // Use explicit widths because the compact column's alignment disables stretching.
-        let inner = width.min(px(1120.0)) - px(56.0);
+        let inner = width.min(page_max) - px(56.0);
         let rail = px(300.0);
         let column = if details && !compact {
-            (inner - rail - px(16.0)).max(px(280.0))
+            (inner - rail - GRID_GAP).max(px(280.0))
         } else {
             inner
         };
@@ -1112,7 +1132,7 @@ impl SettingsView {
 
         let page = div()
             .w(width)
-            .max_w(px(1120.0))
+            .max_w(page_max)
             .px(px(28.0))
             .pt(px(32.0))
             .pb(px(56.0))
@@ -1407,11 +1427,14 @@ impl Render for SettingsView {
             .and_then(preview::MouseModel::for_device)
             .unwrap_or(preview::MouseModel::Superlight2);
         let mut color = self.selected_summary().map(|d| d.color).unwrap_or_default();
+        let content_width = (window.viewport_size().width - SIDEBAR_WIDTH).max(px(0.0));
         if let Some(editor) = self.active_editor() {
             editor.update(cx, |editor, cx| {
                 let details = self.page == Page::Details;
-                if editor.details != details {
+                let columns = if self.grid(content_width) { 2 } else { 1 };
+                if editor.details != details || editor.columns != columns {
                     editor.details = details;
+                    editor.columns = columns;
                     cx.notify();
                 }
             });
@@ -1441,10 +1464,7 @@ impl Render for SettingsView {
                 cx.notify();
             }))
             .child(self.render_sidebar(cx))
-            .child(self.render_content(
-                (window.viewport_size().width - SIDEBAR_WIDTH).max(px(0.0)),
-                cx,
-            ))
+            .child(self.render_content(content_width, cx))
             .children(Root::render_dialog_layer(window, cx))
             .when(self.show_fps, |el| {
                 // Bottom right: the HUD's own top-right default sits over the

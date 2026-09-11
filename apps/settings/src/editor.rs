@@ -37,6 +37,7 @@ pub struct Editor {
     subscriptions: Vec<Subscription>,
     pub busy: bool,
     pub details: bool,
+    pub columns: usize,
     pub message: Option<String>,
     pub failed: bool,
     /// Visible polling row; both connections retain their drafts and apply together.
@@ -51,6 +52,7 @@ impl Editor {
             subscriptions: Vec::new(),
             busy: false,
             details: false,
+            columns: 1,
             message: None,
             failed: false,
             connection: None,
@@ -869,12 +871,36 @@ impl Render for Editor {
             );
         }
 
+        let cards: Vec<gpui_kit::AnyElement> = cards.into_values().collect();
+        if self.columns > 1 && cards.len() > 1 {
+            let mut split: Vec<Vec<gpui_kit::AnyElement>> = vec![Vec::new(), Vec::new()];
+            for (index, card) in cards.into_iter().enumerate() {
+                split[index % 2].push(card);
+            }
+            return div()
+                .w_full()
+                .min_w_0()
+                .flex()
+                .items_start()
+                .gap_4()
+                .children(split.into_iter().map(|column| {
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap_4()
+                        .children(column)
+                }))
+                .into_any_element();
+        }
         div()
             .w_full()
             .min_w_0()
             .flex()
             .flex_col()
             .gap_4()
-            .children(cards.into_values())
+            .children(cards)
+            .into_any_element()
     }
 }
