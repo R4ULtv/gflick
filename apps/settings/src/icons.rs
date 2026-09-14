@@ -11,6 +11,8 @@ pub use gpui_kit::assets::IconName;
 gpui_kit::assets::icon_assets!(
     Extra,
     [
+        Ban,
+        CircleDot,
         Gauge,
         IdCard,
         Image,
@@ -18,6 +20,8 @@ gpui_kit::assets::icon_assets!(
         Lightbulb,
         Mouse,
         MousePointer,
+        MousePointer2,
+        MousePointerClick,
         Plug,
         Radar,
         Unplug,

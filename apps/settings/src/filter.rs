@@ -1,6 +1,24 @@
 // Shared by the photo-baking build script and its test; never called at runtime.
 use image::{Rgba, Rgba32FImage, RgbaImage, imageops::FilterType};
 
+/// Nontransparent device bounds as x, y, width, and height.
+pub fn enclosure(source: &Rgba32FImage) -> [u32; 4] {
+    let (mut left, mut top) = (source.width(), source.height());
+    let (mut right, mut bottom) = (0, 0);
+    for (x, y, pixel) in source.enumerate_pixels() {
+        if pixel[3] > 0.01 {
+            left = left.min(x);
+            top = top.min(y);
+            right = right.max(x);
+            bottom = bottom.max(y);
+        }
+    }
+    if right < left || bottom < top {
+        return [0, 0, source.width(), source.height()];
+    }
+    [left, top, right - left + 1, bottom - top + 1]
+}
+
 /// Filter premultiplied colors so transparent pixels cannot introduce an edge
 /// halo, then restore straight alpha for GPUI. The source asset stays untouched.
 pub fn downsample(mut source: Rgba32FImage, width: u32, height: u32) -> RgbaImage {
@@ -31,6 +49,16 @@ pub fn downsample(mut source: Rgba32FImage, width: u32, height: u32) -> RgbaImag
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_empty_frame_keeps_its_own_bounds_and_a_pictured_one_is_measured() {
+        let blank = Rgba32FImage::from_pixel(8, 8, Rgba([0.0; 4]));
+        assert_eq!(enclosure(&blank), [0, 0, 8, 8]);
+        let mut framed = blank.clone();
+        framed.put_pixel(2, 3, Rgba([1.0, 1.0, 1.0, 1.0]));
+        framed.put_pixel(5, 6, Rgba([1.0, 1.0, 1.0, 0.5]));
+        assert_eq!(enclosure(&framed), [2, 3, 4, 4]);
+    }
 
     #[test]
     fn transparent_colors_do_not_bleed_into_mouse_edges() {

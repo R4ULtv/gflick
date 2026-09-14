@@ -11,15 +11,15 @@ use crate::{
 use gflick_protocol::{DeviceConnection, DeviceState};
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{
-    ActiveTheme, Disableable, Icon, Sizable as _,
+    ActiveTheme, Disableable, Icon, Side, Sizable as _,
     button::{Button, ButtonCustomVariant, ButtonVariants},
     input::{Input, InputEvent, InputState},
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::{DropdownMenu as _, PopupMenu, PopupMenuItem},
     switch::Switch,
 };
 use gpui_kit::{
-    App, Context, Entity, EventEmitter, IntoElement, Render, SharedString, Subscription, Window,
-    div, prelude::*, px, rgb, rgba,
+    App, Context, Entity, EventEmitter, IntoElement, Pixels, Render, SharedString, Subscription,
+    Window, div, prelude::*, px, rgb, rgba,
 };
 use std::collections::BTreeMap;
 
@@ -27,6 +27,51 @@ pub enum EditorEvent {
     Changed,
     Updated(Box<DeviceState>),
 }
+
+/// Which device page owns the controls currently drawn by the editor.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum EditorPage {
+    Performance,
+    Buttons,
+    Details,
+}
+
+/// One physical control, drawn by the page that owns the device artwork.
+pub struct Callout {
+    /// What the control is called on the enclosure, such as "Wheel click".
+    pub label: SharedString,
+    /// The action still on the device, while an edit is waiting to be applied.
+    pub was: Option<SharedString>,
+    pub picker: gpui_kit::AnyElement,
+}
+
+/// How tall a mapping menu runs before it scrolls, and the air above and below
+/// each of its rows. Kit's own rows are tight enough to read as one block.
+const MENU_HEIGHT: Pixels = px(322.0);
+const MENU_ROW_PAD: Pixels = px(3.0);
+
+/// What a mapping value sends to this computer.
+fn action_label(spec: &Spec, value: &str) -> SharedString {
+    spec.choices
+        .iter()
+        .find(|(choice, _)| choice == value)
+        .map(|(_, label)| label.clone().into())
+        .unwrap_or(SharedString::new_static("Not reported"))
+}
+
+/// A glyph for the action, so a callout reads before its label does.
+fn action_icon(value: &str) -> IconName {
+    match value {
+        "0" => IconName::Ban,
+        "1" => IconName::MousePointerClick,
+        "2" => IconName::MousePointer2,
+        "3" => IconName::CircleDot,
+        "4" => IconName::ArrowLeft,
+        "5" => IconName::ArrowRight,
+        _ => IconName::Mouse,
+    }
+}
+
 struct Field {
     spec: Spec,
     input: Entity<InputState>,
@@ -36,8 +81,11 @@ pub struct Editor {
     fields: Vec<Field>,
     subscriptions: Vec<Subscription>,
     pub busy: bool,
-    pub details: bool,
+    pub page: EditorPage,
     pub columns: usize,
+    /// Whether the buttons page is drawing its own callouts, which leaves the
+    /// editor nothing to list for those fields.
+    pub callouts_drawn: bool,
     pub message: Option<String>,
     pub failed: bool,
     /// Visible polling row; both connections retain their drafts and apply together.
@@ -51,8 +99,9 @@ impl Editor {
             fields: Vec::new(),
             subscriptions: Vec::new(),
             busy: false,
-            details: false,
+            page: EditorPage::Performance,
             columns: 1,
+            callouts_drawn: false,
             message: None,
             failed: false,
             connection: None,
@@ -371,38 +420,7 @@ impl Editor {
         let key = spec.key;
 
         if matches!(key, Key::Button(_)) {
-            let choices = spec.choices.clone();
-            let selected = value.to_owned();
-            let label = choices
-                .iter()
-                .find(|(v, _)| v == value)
-                .map(|(_, label)| label.clone())
-                .unwrap_or_else(|| "Not reported".into());
-            let editor = cx.entity().downgrade();
-            return Button::new(SharedString::from(format!("{key:?}-mapping")))
-                .label(label)
-                .outline()
-                .dropdown_caret(true)
-                .disabled(self.busy)
-                .dropdown_menu(move |menu, _, _| {
-                    choices
-                        .iter()
-                        .fold(menu, |menu, (value, label)| {
-                            let editor = editor.clone();
-                            let action = value.clone();
-                            menu.item(
-                                PopupMenuItem::new(label.clone())
-                                    .checked(value == &selected)
-                                    .on_click(move |_, window, cx| {
-                                        let _ = editor.update(cx, |editor, cx| {
-                                            editor.set(key, action.clone(), window, cx)
-                                        });
-                                    }),
-                            )
-                        })
-                        .scrollable(true)
-                })
-                .into_any_element();
+            return self.render_mapping(spec, value, None, cx);
         }
 
         if spec.text {
@@ -445,6 +463,106 @@ impl Editor {
             Control::Chips => self.render_chips(spec, value, cx).into_any_element(),
             Control::Swatches => self.render_swatches(spec, value, cx).into_any_element(),
         }
+    }
+
+    /// A physical-button picker, optionally sized to fill a callout card.
+    fn render_mapping(
+        &self,
+        spec: &Spec,
+        value: &str,
+        width: Option<Pixels>,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        let key = spec.key;
+        let choices = spec.choices.clone();
+        let selected = value.to_owned();
+        let label = action_label(spec, value);
+        let editor = cx.entity().downgrade();
+        Button::new(SharedString::from(format!("{key:?}-mapping")))
+            .outline()
+            .dropdown_caret(true)
+            .disabled(self.busy)
+            .accessibility_label(format!("{}: {label}", spec.label))
+            .when_some(width, |button, width| button.w(width).h(px(34.0)))
+            .child(
+                div()
+                    .min_w_0()
+                    .flex()
+                    .items_center()
+                    .gap(px(7.0))
+                    .child(
+                        Icon::new(action_icon(value))
+                            .with_size(px(14.0))
+                            .text_color(rgb(MUTED_2)),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(text::BODY)
+                            .child(label),
+                    ),
+            )
+            .dropdown_menu(move |menu, _, _| {
+                choices
+                    .iter()
+                    // Put checks opposite action icons and constrain the menu to its control.
+                    .fold(
+                        menu.check_side(Side::Right)
+                            .max_h(MENU_HEIGHT)
+                            .when_some(width, |menu, width| menu.min_w(width)),
+                        |menu, (value, label)| {
+                            let editor = editor.clone();
+                            let action = value.clone();
+                            let label = SharedString::from(label.clone());
+                            // Separate named actions from raw button numbers.
+                            menu.when(value == "6", PopupMenu::separator).item(
+                                // Element rows allow more padding than Kit's fixed plain rows.
+                                PopupMenuItem::element(move |_, _| {
+                                    // Flexible, so the check stays on the far
+                                    // edge rather than trailing the label.
+                                    div().flex_1().py(MENU_ROW_PAD).child(label.clone())
+                                })
+                                .icon(action_icon(value))
+                                .checked(value == &selected)
+                                .on_click(move |_, window, cx| {
+                                    let _ = editor.update(cx, |editor, cx| {
+                                        editor.set(key, action.clone(), window, cx)
+                                    });
+                                }),
+                            )
+                        },
+                    )
+                    .scrollable(true)
+            })
+            .into_any_element()
+    }
+
+    /// How many physical controls this device's draft assigns.
+    pub fn mapped_buttons(&self) -> usize {
+        self.fields
+            .iter()
+            .filter(|field| matches!(field.spec.key, Key::Button(_)))
+            .count()
+    }
+
+    /// The buttons page's callouts: the artwork belongs to the page, the draft
+    /// behind each picker belongs here.
+    pub fn callouts(&self, picker: Pixels, cx: &mut Context<Self>) -> Vec<Callout> {
+        let mut callouts = Vec::new();
+        for field in &self.fields {
+            if !matches!(field.spec.key, Key::Button(_)) {
+                continue;
+            }
+            let value = field.input.read(cx).value().to_string();
+            callouts.push(Callout {
+                label: field.spec.label.into(),
+                was: (value != field.spec.value)
+                    .then(|| action_label(&field.spec, &field.spec.value)),
+                picker: self.render_mapping(&field.spec, &value, Some(picker), cx),
+            });
+        }
+        callouts
     }
 
     /// A switch with an explicit state label and accent when enabled.
@@ -800,9 +918,17 @@ impl Render for Editor {
         let mut groups: BTreeMap<usize, (&str, Vec<gpui_kit::AnyElement>)> = BTreeMap::new();
         let mut polling: Vec<&Field> = Vec::new();
         for field in &self.fields {
-            // The nickname and the finish describe the mouse rather than tune
-            // it, so they live on the details page.
-            if matches!(field.spec.key, Key::Nickname | Key::Appearance) != self.details {
+            // Device tuning, physical button assignments, and presentation
+            // each have their own page even though one editor keeps the draft.
+            let field_page = match field.spec.key {
+                Key::Nickname | Key::Appearance => EditorPage::Details,
+                Key::Button(_) => EditorPage::Buttons,
+                _ => EditorPage::Performance,
+            };
+            if field_page != self.page {
+                continue;
+            }
+            if self.callouts_drawn && matches!(field.spec.key, Key::Button(_)) {
                 continue;
             }
             // The rate rows are one control between them, drawn below.
@@ -872,6 +998,20 @@ impl Render for Editor {
         }
 
         let cards: Vec<gpui_kit::AnyElement> = cards.into_values().collect();
+        if cards.is_empty() && self.page == EditorPage::Buttons {
+            return ui::card()
+                .child(ui::card_header(
+                    IconName::Mouse,
+                    "Button assignments",
+                    "This mouse does not report host-visible button remapping.",
+                ))
+                .child(ui::card_body().child(ui::notice(
+                    IconName::Info,
+                    NOTICE_ICON,
+                    "No remappable buttons were reported for this device.",
+                )))
+                .into_any_element();
+        }
         if self.columns > 1 && cards.len() > 1 {
             let mut split: Vec<Vec<gpui_kit::AnyElement>> = vec![Vec::new(), Vec::new()];
             for (index, card) in cards.into_iter().enumerate() {

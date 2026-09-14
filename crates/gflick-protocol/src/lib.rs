@@ -370,6 +370,26 @@ impl DeviceModel {
             Self::G305 => &[White, Black, Lilac, Blue, Mint],
         }
     }
+    /// Enclosure control names in reported mapping order; extras retain their number.
+    pub fn button_names(self) -> &'static [&'static str] {
+        match self {
+            Self::Superlight | Self::Superlight2 => &[
+                "Left click",
+                "Right click",
+                "Wheel click",
+                "Back",
+                "Forward",
+            ],
+            Self::G305 => &[
+                "Left click",
+                "Right click",
+                "Wheel click",
+                "Back",
+                "Forward",
+                "DPI button",
+            ],
+        }
+    }
     /// User-specified sRGB swatch values. See assets/mouses/SOURCES.md.
     pub fn swatch(self, color: DeviceColor) -> Option<u32> {
         use DeviceColor::*;

@@ -29,7 +29,7 @@ preserve drafts and input focus. No demo mode or 3D renderer is included.
 
 ## Editing
 
-Choose values in Performance or Device details, then select **Apply**. **Discard** restores the last
+Choose values in Performance, Buttons, or Device details, then select **Apply**. **Discard** restores the last
 read values. Drafts are independent for each device and survive switching devices.
 Refresh is disabled while that device has pending edits. Controls are disabled
 while a write is in progress.
@@ -103,9 +103,11 @@ running to read or change preferences.
   from “USB disconnected.” Connection changes update automatically; loading
   or a lost agent connection keeps rows visible with unverified status and no stale battery.
 - Sidebar battery percentage and low-charge indicator; unknown charge shows a dash.
-- Performance and Device details tabs, with a stacked layout at narrower widths.
+- Performance, Buttons, and Device details tabs, with a stacked layout at narrower widths.
+- Model-specific numbered button maps keep assignments out of Performance and pair each
+  physical control with its host-visible action.
 - Website logo rendered at display resolution and package-derived app version.
-- Product previews appear only in Device details.
+- Product previews appear in Buttons and Device details.
 - Official transparent top-view artwork for every supported finish, matched to reported model names,
   independently of nicknames. Unsupported models do not borrow another photo.
 - Photos are prefiltered at build time with alpha-aware Lanczos filtering and

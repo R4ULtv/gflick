@@ -121,6 +121,7 @@ pub fn specs(state: &DeviceState) -> Vec<Spec> {
     if caps.mouse_button_filter
         && let Some(mapping) = settings.mouse_button_mapping.as_ref()
     {
+        // Prefer physical control names; fall back to reported button positions.
         const LABELS: [&str; 16] = [
             "Button 1",
             "Button 2",
@@ -139,8 +140,14 @@ pub fn specs(state: &DeviceState) -> Vec<Spec> {
             "Button 15",
             "Button 16",
         ];
+        let names = state
+            .device
+            .model()
+            .map(DeviceModel::button_names)
+            .unwrap_or_default();
         for (index, action) in mapping.iter().enumerate().take(LABELS.len()) {
-            let mut button = spec(Button(index as u8), "Buttons", LABELS[index], action, &[]);
+            let label = names.get(index).copied().unwrap_or(LABELS[index]);
+            let mut button = spec(Button(index as u8), "Buttons", label, action, &[]);
             button.help =
                 "Host button mapping. Requires Host control; does not edit onboard assignments."
                     .into();
@@ -150,7 +157,8 @@ pub fn specs(state: &DeviceState) -> Vec<Spec> {
                     (
                         number.to_string(),
                         match number {
-                            0 => "Disabled".into(),
+                            // The mouse may still act locally; only host output is disabled.
+                            0 => "Sends nothing".into(),
                             1 => "Left click".into(),
                             2 => "Right click".into(),
                             3 => "Middle click".into(),

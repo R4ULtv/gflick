@@ -258,13 +258,14 @@ fn each_supported_model_exposes_its_live_controls_without_borrowing_others() {
         }
         assert_eq!(has(Key::Operating), model == DeviceModel::G305);
         assert_eq!(has(Key::Lighting), model == DeviceModel::G305);
-        assert_eq!(
-            fields
-                .iter()
-                .filter(|field| matches!(field.key, Key::Button(_)))
-                .count(),
-            usize::from(count)
-        );
+        let buttons: Vec<&str> = fields
+            .iter()
+            .filter(|field| matches!(field.key, Key::Button(_)))
+            .map(|field| field.label)
+            .collect();
+        // A row is named for the control the hand finds, not its index.
+        assert_eq!(buttons, model.button_names());
+        assert_eq!(buttons.len(), usize::from(count));
         state.settings.onboard_dpi_stage = Some(0);
         assert!(specs(&state).iter().any(|field| field.key == Key::Stage));
     }

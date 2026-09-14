@@ -48,6 +48,19 @@ const PAGE_MAX_WIDE: Pixels = px(1560.0);
 const GRID_MIN_COLUMN: Pixels = px(560.0);
 /// The gutter between cards, across and down.
 const GRID_GAP: Pixels = px(16.0);
+/// Dimensions for button callout cards shown beside the artwork.
+const CALLOUT_WIDTH: Pixels = px(214.0);
+const CALLOUT_HEIGHT: Pixels = px(74.0);
+const CALLOUT_PAD: Pixels = px(10.0);
+const CALLOUT_GAP: Pixels = px(12.0);
+/// The shortest leader line between a card and the artwork column. Below this
+/// the callouts crowd the mouse, and the page falls back to a list of rows.
+const CALLOUT_LEAD: Pixels = px(44.0);
+/// The widest the callouts stand apart. Past it only the lines would grow.
+const CALLOUT_STAGE_MAX: Pixels = px(880.0);
+/// Callout mark and leader line, heavier than ordinary UI hairlines.
+const CALLOUT_MARK: Pixels = px(11.0);
+const CALLOUT_LINE: Pixels = px(1.5);
 /// The device list collapsed to a rail of glyphs, and the padding that holds
 /// them. Kit collapses its own sidebar to 48px; this one carries 36px targets.
 const SIDEBAR_RAIL_WIDTH: Pixels = px(56.0);
@@ -90,6 +103,7 @@ const FPS_ENV: &str = "GFLICK_FPS";
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     Performance,
+    Buttons,
     Details,
     Preferences,
 }
@@ -1127,7 +1141,8 @@ impl SettingsView {
         } else if self.error.is_some() {
             self.render_empty().into_any_element()
         } else if let Some(state) = self.selected_state() {
-            self.render_device(state, width, compact).into_any_element()
+            self.render_device(state, width, compact, cx)
+                .into_any_element()
         } else if let Some(device) = self.selected_summary() {
             self.render_unavailable(device).into_any_element()
         } else {
@@ -1187,6 +1202,7 @@ impl SettingsView {
         }
         let tabs = [
             (Page::Performance, "Performance", IconName::Gauge),
+            (Page::Buttons, "Buttons", IconName::Mouse),
             (Page::Details, "Device details", IconName::IdCard),
         ]
         .into_iter()
@@ -1297,8 +1313,15 @@ impl SettingsView {
             && width.min(PAGE_MAX_WIDE) - px(56.0) >= GRID_MIN_COLUMN + GRID_GAP + GRID_MIN_COLUMN
     }
 
-    fn render_device(&self, state: &DeviceState, width: Pixels, compact: bool) -> impl IntoElement {
+    fn render_device(
+        &self,
+        state: &DeviceState,
+        width: Pixels,
+        compact: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let details = self.page == Page::Details;
+        let buttons = self.page == Page::Buttons;
         let page_max = if self.grid(width) {
             PAGE_MAX_WIDE
         } else {
@@ -1307,7 +1330,7 @@ impl SettingsView {
         // Use explicit widths because the compact column's alignment disables stretching.
         let inner = width.min(page_max) - px(56.0);
         let rail = px(300.0);
-        let column = if details && !compact {
+        let column = if (details || buttons) && !compact {
             (inner - rail - GRID_GAP).max(px(280.0))
         } else {
             inner
@@ -1383,6 +1406,21 @@ impl SettingsView {
                 )
             });
 
+        let (eyebrow, introduction) = match self.page {
+            Page::Buttons => (
+                "BUTTON ASSIGNMENTS",
+                "Match each physical control to the action this computer receives.",
+            ),
+            Page::Details => (
+                "DEVICE DETAILS",
+                "Review the mouse and choose how it appears in GFlick.",
+            ),
+            _ => (
+                "YOUR DEVICE",
+                "Make it yours. Changes reach the mouse when you apply.",
+            ),
+        };
+
         let page = div()
             .w(width)
             .max_w(page_max)
@@ -1402,7 +1440,7 @@ impl SettingsView {
                             .flex()
                             .flex_col()
                             .gap(px(7.0))
-                            .child(ui::eyebrow("YOUR DEVICE"))
+                            .child(ui::eyebrow(eyebrow))
                             .child(
                                 div()
                                     .text_size(theme::text::DISPLAY)
@@ -1415,9 +1453,7 @@ impl SettingsView {
                                     .max_w(px(560.0))
                                     .text_size(theme::text::BODY)
                                     .text_color(rgb(MUTED))
-                                    .child(
-                                        "Make it yours. Changes reach the mouse when you apply.",
-                                    ),
+                                    .child(introduction),
                             ),
                     ),
             )
@@ -1439,17 +1475,25 @@ impl SettingsView {
                         .child(format!("Showing the last successful read. {error}")),
                 )
             })
-            .child(
-                div()
+            .child(match self.callout_cards(width, cx) {
+                Some(cards) => self
+                    .render_button_stage(state, cards, inner)
+                    .into_any_element(),
+                None => div()
                     .flex()
                     .gap_4()
-                    .when(compact, |el| el.flex_col_reverse())
+                    .when(compact && details, |el| el.flex_col_reverse())
+                    .when(compact && buttons, |el| el.flex_col())
                     .when(!compact, |el| el.items_start())
                     .child(settings)
+                    .when(buttons, |el| {
+                        el.child(self.render_button_map(state, if compact { inner } else { rail }))
+                    })
                     .when(details, |el| {
                         el.child(self.render_rail(state, if compact { inner } else { rail }))
-                    }),
-            );
+                    })
+                    .into_any_element(),
+            });
 
         // A column that centres its child lets the page keep a comfortable
         // maximum width on a wide window and still shrink on a narrow one.
@@ -1460,6 +1504,185 @@ impl SettingsView {
             .items_center()
             .child(page)
             .overflow_y_scrollbar()
+    }
+
+    /// Builds artwork callouts only when every mapped control has room and an anchor.
+    fn callout_cards(&self, width: Pixels, cx: &mut Context<Self>) -> Option<Vec<editor::Callout>> {
+        if !self.callout_mode(width, cx) {
+            return None;
+        }
+        let editor = self.active_editor()?;
+        // The menu opens the width of the picker, which fills its card.
+        Some(editor.update(cx, |editor, cx| {
+            editor.callouts(CALLOUT_WIDTH - CALLOUT_PAD * 2.0, cx)
+        }))
+    }
+
+    /// Whether all controls fit the anchored artwork layout; otherwise use rows.
+    fn callout_mode(&self, width: Pixels, cx: &App) -> bool {
+        if self.page != Page::Buttons || width.min(PAGE_MAX) - px(56.0) < callout_stage_min() {
+            return false;
+        }
+        let Some(model) = self
+            .selected_state()
+            .and_then(|state| preview::MouseModel::for_device(&state.device))
+        else {
+            return false;
+        };
+        let mapped = self
+            .active_editor()
+            .map(|editor| editor.read(cx).mapped_buttons())
+            .unwrap_or(0);
+        mapped > 0 && mapped == model.button_anchors().len()
+    }
+
+    /// Renders button cards around the mouse, connected to their enclosure positions.
+    fn render_button_stage(
+        &self,
+        state: &DeviceState,
+        cards: Vec<editor::Callout>,
+        width: Pixels,
+    ) -> impl IntoElement {
+        let model = preview::MouseModel::for_device(&state.device)
+            .expect("a callout stage is only built for artwork that exists");
+        let anchors = model.button_anchors();
+        let stage = width.min(CALLOUT_STAGE_MAX);
+        let art_left = (stage - preview::ART_WIDTH) / 2.0;
+        let tops = callout_column(&anchors);
+
+        let mut layers: Vec<gpui_kit::AnyElement> = Vec::new();
+        for (index, card) in cards.into_iter().enumerate() {
+            let anchor = &anchors[index];
+            let left = anchor.side == preview::Side::Left;
+            let middle = tops[index] + CALLOUT_HEIGHT / 2.0;
+            let point = (art_left + anchor.x, anchor.y);
+            // Give each leader one turn at its card height to avoid shared segments.
+            layers.push(
+                lead_across(
+                    if left {
+                        CALLOUT_WIDTH
+                    } else {
+                        stage - CALLOUT_WIDTH
+                    },
+                    point.0,
+                    middle,
+                )
+                .into_any_element(),
+            );
+            layers.push(lead_down(point.0, middle, point.1).into_any_element());
+            layers.push(
+                div()
+                    .absolute()
+                    .left(point.0 - CALLOUT_MARK / 2.0)
+                    .top(point.1 - CALLOUT_MARK / 2.0)
+                    .size(CALLOUT_MARK)
+                    .rounded_full()
+                    .bg(rgb(ACCENT))
+                    .border_1()
+                    .border_color(rgba(0xffffffd9))
+                    .into_any_element(),
+            );
+            layers.push(
+                render_callout(card)
+                    .absolute()
+                    .top(tops[index])
+                    .map(|el| {
+                        if left {
+                            el.left(px(0.0))
+                        } else {
+                            el.left(stage - CALLOUT_WIDTH)
+                        }
+                    })
+                    .into_any_element(),
+            );
+        }
+
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_4()
+            // The artwork is the page, so it stands clear of the heading rather
+            // than following it the way a column of cards would.
+            .pt(px(28.0))
+            .child(
+                div()
+                    .relative()
+                    .w(stage)
+                    .h(preview::ART_HEIGHT)
+                    .flex_shrink_0()
+                    .child(
+                        div()
+                            .absolute()
+                            .left(art_left)
+                            .top(px(0.0))
+                            .child(self.preview.clone()),
+                    )
+                    .children(layers),
+            )
+            .child(ui::caption(model.label()))
+            .child(div().max_w(px(640.0)).child(ui::notice(
+                IconName::Info,
+                MUTED_2,
+                "Assignments are sent to the mouse when you apply. They need Host control \
+                     and leave the onboard profile alone.",
+            )))
+    }
+
+    /// The physical map for button assignments. Coordinates live beside the
+    /// model artwork in `preview.rs`, while the editor owns the dropdowns.
+    fn render_button_map(&self, state: &DeviceState, width: Pixels) -> impl IntoElement {
+        let model = preview::MouseModel::for_device(&state.device);
+        div()
+            .w(width)
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(
+                div()
+                    .rounded_xl()
+                    .border_1()
+                    .border_color(rgb(LINE))
+                    .bg(rgb(SURFACE))
+                    .overflow_hidden()
+                    .when_some(model, |el, model| {
+                        el.child(self.preview.clone()).child(
+                            div()
+                                .px_4()
+                                .pb_4()
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .gap_2()
+                                .child(ui::caption("PHYSICAL BUTTONS"))
+                                .child(
+                                    div()
+                                        .text_size(theme::text::SMALL)
+                                        .text_color(rgb(MUTED))
+                                        .child(model.label()),
+                                ),
+                        )
+                    })
+                    .when(model.is_none(), |el| {
+                        el.child(
+                            div()
+                                .h(px(280.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(theme::text::SMALL)
+                                .text_color(rgb(MUTED_2))
+                                .child("No button map artwork yet"),
+                        )
+                    }),
+            )
+            .child(ui::notice(
+                IconName::Info,
+                MUTED_2,
+                "Every assignment is written to the mouse together, when you apply.",
+            ))
     }
 
     /// The details page's right column: what the mouse is, not what it does.
@@ -1681,13 +1904,23 @@ impl Render for SettingsView {
             .unwrap_or(preview::MouseModel::Superlight2);
         let mut color = self.selected_summary().map(|d| d.color).unwrap_or_default();
         let content_width = (window.viewport_size().width - self.sidebar_width()).max(px(0.0));
+        let callouts = self.callout_mode(content_width, cx);
         if let Some(editor) = self.active_editor() {
             editor.update(cx, |editor, cx| {
-                let details = self.page == Page::Details;
+                let page = match self.page {
+                    Page::Performance => editor::EditorPage::Performance,
+                    Page::Buttons => editor::EditorPage::Buttons,
+                    Page::Details => editor::EditorPage::Details,
+                    Page::Preferences => editor::EditorPage::Performance,
+                };
                 let columns = if self.grid(content_width) { 2 } else { 1 };
-                if editor.details != details || editor.columns != columns {
-                    editor.details = details;
+                if editor.page != page
+                    || editor.columns != columns
+                    || editor.callouts_drawn != callouts
+                {
+                    editor.page = page;
                     editor.columns = columns;
+                    editor.callouts_drawn = callouts;
                     cx.notify();
                 }
             });
@@ -1703,8 +1936,13 @@ impl Render for SettingsView {
                     .unwrap_or_default();
             }
         }
+        let art = if callouts {
+            preview::Art::Callouts
+        } else {
+            preview::Art::Card
+        };
         self.preview
-            .update(cx, |preview, cx| preview.set_model(model, color, cx));
+            .update(cx, |preview, cx| preview.set_view(model, color, art, cx));
         div()
             .track_focus(&self.focus)
             // `fps_monitor` pins itself absolutely, so its parent must be relative.
@@ -1722,6 +1960,108 @@ impl Render for SettingsView {
                 el.child(fps_monitor(window, cx).anchor(Anchor::BottomRight))
             })
     }
+}
+
+/// The narrowest page that can stand a column of callouts either side of the
+/// artwork without crowding it.
+fn callout_stage_min() -> Pixels {
+    CALLOUT_WIDTH * 2.0 + CALLOUT_LEAD * 2.0 + preview::ART_WIDTH
+}
+
+/// Places non-overlapping callouts near their anchors, then recenters each column.
+fn callout_column(anchors: &[preview::ButtonAnchor]) -> Vec<Pixels> {
+    let mut tops = vec![px(0.0); anchors.len()];
+    let limit = preview::ART_HEIGHT - CALLOUT_HEIGHT;
+    for side in [preview::Side::Left, preview::Side::Right] {
+        let mut column: Vec<usize> = (0..anchors.len())
+            .filter(|index| anchors[*index].side == side)
+            .collect();
+        column.sort_by(|a, b| {
+            anchors[*a]
+                .y
+                .partial_cmp(&anchors[*b].y)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let mut next = px(0.0);
+        let mut drift = px(0.0);
+        for index in &column {
+            let wanted = (anchors[*index].y - CALLOUT_HEIGHT / 2.0).clamp(px(0.0), limit);
+            let top = wanted.max(next).min(limit);
+            tops[*index] = top;
+            drift += top - wanted;
+            next = top + CALLOUT_HEIGHT + CALLOUT_GAP;
+        }
+        if let Some(first) = column.first() {
+            let lift = (drift / column.len() as f32).min(tops[*first]);
+            for index in &column {
+                tops[*index] -= lift;
+            }
+        }
+    }
+    tops
+}
+
+/// A run of leader line. Hairlines are painted as fills so a line can start
+/// and stop anywhere on the stage rather than on an element's edge.
+fn lead_across(from: Pixels, to: Pixels, y: Pixels) -> Div {
+    div()
+        .absolute()
+        .left(from.min(to))
+        .top(y)
+        .w(px((to.as_f32() - from.as_f32()).abs()))
+        .h(CALLOUT_LINE)
+        .bg(rgb(LINE_STRONG))
+}
+
+fn lead_down(x: Pixels, from: Pixels, to: Pixels) -> Div {
+    div()
+        .absolute()
+        .left(x)
+        .top(from.min(to))
+        .w(CALLOUT_LINE)
+        .h(px((to.as_f32() - from.as_f32()).abs()))
+        .bg(rgb(LINE_STRONG))
+}
+
+/// One callout: what the control is called, and what it sends.
+fn render_callout(card: editor::Callout) -> Div {
+    div()
+        .w(CALLOUT_WIDTH)
+        .h(CALLOUT_HEIGHT)
+        .flex()
+        .flex_col()
+        .gap(px(6.0))
+        .p(CALLOUT_PAD)
+        .rounded_xl()
+        .border_1()
+        .border_color(rgb(LINE))
+        .bg(rgb(SURFACE))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(theme::text::SMALL)
+                        .text_color(rgb(MUTED))
+                        .child(card.label),
+                )
+                .when_some(card.was, |el, was| {
+                    el.child(ui::dot(theme::ACCENT_TEXT)).child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .flex_shrink_0()
+                            .text_size(theme::text::MICRO)
+                            .text_color(rgb(theme::ACCENT_TEXT))
+                            .child(format!("was {was}")),
+                    )
+                }),
+        )
+        .child(card.picker)
 }
 
 /// Charge below this is worth pointing at rather than just reporting.
@@ -2022,10 +2362,7 @@ fn main() {
                 return;
             }
 
-            // Actions dispatch along the focus path, which moves to whatever in
-            // the window was last clicked. These are the window's own shortcuts
-            // rather than any one element's, so they are registered globally and
-            // run wherever focus happens to be.
+            // Register window shortcuts globally so focus changes do not disable them.
             if let Some(view) = view_slot.borrow().clone() {
                 let fps = view.clone();
                 cx.on_action::<ToggleFps>(move |_, cx| {
@@ -2041,6 +2378,51 @@ fn main() {
 
             cx.activate(true);
         });
+}
+
+#[cfg(test)]
+mod callout_tests {
+    use super::*;
+
+    /// Two controls at the same height cannot share one row of cards, and the
+    /// column that has to spread them should still straddle them.
+    #[test]
+    fn callouts_stand_clear_of_each_other_and_stay_over_their_controls() {
+        for model in [
+            preview::MouseModel::Superlight,
+            preview::MouseModel::Superlight2,
+            preview::MouseModel::G305,
+        ] {
+            let anchors = model.button_anchors();
+            let tops = callout_column(&anchors);
+            for side in [preview::Side::Left, preview::Side::Right] {
+                let mut column: Vec<(Pixels, Pixels)> = anchors
+                    .iter()
+                    .zip(&tops)
+                    .filter(|(anchor, _)| anchor.side == side)
+                    .map(|(anchor, top)| (*top, anchor.y))
+                    .collect();
+                column.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                for card in &column {
+                    assert!(card.0 >= px(0.0));
+                    assert!(card.0 + CALLOUT_HEIGHT <= preview::ART_HEIGHT, "{model:?}");
+                }
+                for pair in column.windows(2) {
+                    assert!(
+                        pair[1].0 - pair[0].0 >= CALLOUT_HEIGHT,
+                        "{model:?}: callouts overlap"
+                    );
+                }
+                // The column covers the controls it names, so no line has to
+                // run the height of the artwork to reach its card.
+                if let (Some(first), Some(last)) = (column.first(), column.last()) {
+                    let reach = CALLOUT_HEIGHT * column.len() as f32;
+                    assert!(first.0 <= first.1 + reach, "{model:?}");
+                    assert!(last.0 + CALLOUT_HEIGHT >= last.1 - reach, "{model:?}");
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
