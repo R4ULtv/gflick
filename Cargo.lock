@@ -2267,7 +2267,7 @@ dependencies = [
 
 [[package]]
 name = "gflick-agent"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2284,7 +2284,7 @@ dependencies = [
 
 [[package]]
 name = "gflick-bench"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2295,7 +2295,7 @@ dependencies = [
 
 [[package]]
 name = "gflick-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2340,7 +2340,7 @@ dependencies = [
 
 [[package]]
 name = "gflick-probe"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2358,7 +2358,7 @@ dependencies = [
 
 [[package]]
 name = "gflick-settings"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -2375,7 +2375,7 @@ dependencies = [
 
 [[package]]
 name = "gflick-setup"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2389,7 +2389,7 @@ dependencies = [
 
 [[package]]
 name = "gflick-tray"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "directories",

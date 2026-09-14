@@ -27,12 +27,12 @@ along with `SHA256SUMS`. Verify the archive before extracting it:
 
 ```powershell
 # Windows PowerShell; compare this value with the archive's SHA256SUMS entry
-(Get-FileHash .\gflick-0.2.0-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()
+(Get-FileHash .\gflick-0.3.0-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()
 ```
 
 ```sh
 # Apple Silicon macOS
-shasum -a 256 gflick-0.2.0-macos-aarch64.tar.gz
+shasum -a 256 gflick-0.3.0-macos-aarch64.tar.gz
 ```
 
 Extract the archive, then run `gflick-setup install` from the extracted directory.
