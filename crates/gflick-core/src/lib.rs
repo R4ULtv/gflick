@@ -2136,7 +2136,7 @@ fn parse_extended_rate_flags(flags: &[u8]) -> Result<Vec<u16>> {
 }
 
 /// HID++ features encode rates in different orders. Keep the public model
-/// deterministic for every caller, including the future settings UI.
+/// deterministic for every caller, including the Settings UI.
 fn normalize_supported_hz(mut rates: Vec<u16>) -> Vec<u16> {
     rates.sort_unstable();
     rates.dedup();

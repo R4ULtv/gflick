@@ -6,9 +6,11 @@ and installs an extracted local bundle; it never downloads release code.
 
 ## Prepare the version
 
-Choose an unprefixed semantic version such as `0.1.0`. Set that same version in all
-six application manifests: agent, tray, CLI, setup, Probe, and Bench. The release
-workflow rejects the tag unless every package version exactly matches it.
+Choose an unprefixed semantic version such as `0.3.1`. Set that same version in all
+seven application manifests: agent, tray, CLI, setup, Probe, Bench, and Settings. Also
+update `VERSION` in `website/src/consts.ts`. The current release workflow checks the
+six applications it ships and the website version against the tag; Settings should
+still move with the product version even though it is not in published archives yet.
 
 Run the complete local gates from a clean checkout:
 
@@ -16,7 +18,7 @@ Run the complete local gates from a clean checkout:
 cargo fmt --all -- --check
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo build --release --locked -p gflick-agent -p gflick-tray -p gflick-cli -p gflick-setup -p gflick-probe -p gflick-bench
+cargo build --release --locked -p gflick-agent -p gflick-tray -p gflick-cli -p gflick-setup -p gflick-probe -p gflick-bench -p gflick-settings
 git diff --check
 ```
 
@@ -31,17 +33,19 @@ schema-1 manifest after staging final payloads, invoke the non-mutating setup ve
 and keep developer tools outside the user bundle.
 
 ```powershell
-.\scripts\package-release.ps1 -Version 0.1.0 -Target windows -Architecture x86_64 -BinaryDir target\release -OutputDir dist
+.\scripts\package-release.ps1 -Version 0.3.1 -Target windows -Architecture x86_64 -BinaryDir target\release -OutputDir dist
 ```
 
 ```sh
-./scripts/package-release.sh --version 0.1.0 --target macos --arch aarch64 --binary-dir target/release --output-dir dist
+./scripts/package-release.sh --version 0.3.1 --target macos --arch aarch64 --binary-dir target/release --output-dir dist
 ```
 
-Pass `-SettingsAppDir <directory>` or `--settings-app-dir <directory>` only after a
-real settings application tree exists. Every regular file is then represented below
-the closed `user_applications` root and settings becomes a default component. Omitting
-the argument produces no settings entry or placeholder.
+The current workflow omits Settings, so normal release archives contain no Settings
+entry or placeholder. The packaging scripts accept `-SettingsAppDir <directory>` or
+`--settings-app-dir <directory>` for a separately assembled native application tree.
+Every regular file in that tree is then represented below the closed
+`user_applications` root and Settings becomes a default component. A bare
+`gflick-settings` build artifact is not, by itself, a platform application tree.
 
 ## Tag and publish
 
@@ -49,18 +53,18 @@ After merging the validated version change, create and push `v<version>` from th
 exact commit to release:
 
 ```sh
-git tag -a v0.1.0 -m "GFlick v0.1.0"
-git push origin v0.1.0
+git tag -a v0.3.1 -m "GFlick v0.3.1"
+git push origin v0.3.1
 ```
 
 Ordinary pushes and pull requests never publish. The tag workflow builds the same six
-packages on both supported platforms and creates these five prerelease assets:
+shipped packages on both supported platforms and creates these five prerelease assets:
 
 ```text
-gflick-0.1.0-windows-x86_64.zip
-gflick-0.1.0-macos-aarch64.tar.gz
-gflick-devtools-0.1.0-windows-x86_64.zip
-gflick-devtools-0.1.0-macos-aarch64.tar.gz
+gflick-0.3.1-windows-x86_64.zip
+gflick-0.3.1-macos-aarch64.tar.gz
+gflick-devtools-0.3.1-windows-x86_64.zip
+gflick-devtools-0.3.1-macos-aarch64.tar.gz
 SHA256SUMS
 ```
 
@@ -74,7 +78,7 @@ documentation, and chores remain available through the `Full Changelog` comparis
 link. Preview the exact notes before tagging with:
 
 ```sh
-bash scripts/generate-release-notes.sh v0.1.1 HEAD R4ULtv/gflick v0.2.0
+bash scripts/generate-release-notes.sh v0.3.0 HEAD R4ULtv/gflick v0.3.1
 ```
 
 ## Validate the prerelease

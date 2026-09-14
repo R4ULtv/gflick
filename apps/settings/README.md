@@ -1,8 +1,12 @@
 # GFlick Settings (GPUI)
 
-The native Rust settings client uses [GPUI Kit](https://gpui-kit.com), with a
-layout inspired by `design/settings-studio`. All device reads and writes go
-through `gflick-client`; the agent owns hardware access and persistence.
+The native Rust settings client uses [GPUI Kit](https://gpui-kit.com). All device
+reads and writes go through `gflick-client`; the agent owns hardware access and
+persistence.
+
+The client currently runs from source and is not included in the published release
+archives. The release packagers already support a verified Settings application tree,
+but the release workflow does not build or pass one yet.
 
 ## Run
 
@@ -58,8 +62,8 @@ Stored-profile editing (saved DPI stage values, onboard button assignments,
 profile names, and power timers) and macros are outside this live-settings UI.
 Lighting state is not included in device snapshots; the form identifies it as
 unreported and starts with **Unchanged**. The agent verifies lighting writes via
-the core's read-back checks. Rebuild and restart the agent and Settings for the
-new live-setting commands and snapshot fields.
+the core's read-back checks. Agent and Settings binaries must use the same current
+protocol version.
 
 Before writing, the client re-reads the device and checks for external setting or
 hardware-identity changes. Commands run in order on a background executor, stop at
@@ -96,7 +100,7 @@ running to read or change preferences.
 
 ## Interface and assets
 
-- Previously seen mice remain in the sidebar, including after a restart. Identity
+- Previously seen mice remain in the sidebar, including after a restart. Their
   identities come from the agent’s `settings.json` device entries, without a
   separate client history file.
   “Mouse offline · receiver connected” distinguishes a silent wireless mouse
@@ -117,7 +121,7 @@ Color choices update the preview immediately. Apply saves `color` in the agent�
 `settings.json` entry keyed by physical hardware ID; Discard restores the saved
 image. Both the UI and agent validate colors against the selected model. Existing files without a color default to black. Color is cosmetic host
 metadata and never changes mouse firmware or lighting. Rebuild and restart both
-the agent and settings client to use the new `set_device_color` command.
+the agent and Settings client after changing the shared protocol crate.
 
 The native client requires Rust 1.97.1, as declared in its manifest; the rest of the
 workspace retains its Rust 1.85 minimum.

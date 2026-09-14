@@ -33,7 +33,7 @@ gflick-<version>-<platform>-<arch>/
     gflick-agent[.exe]
     gflick-tray[.exe]
     gflick[.exe]
-    settings/                 # present only after the settings app ships
+    settings/                 # present only in bundles packaged with an app tree
       ...
 ```
 
@@ -54,15 +54,16 @@ gflick-setup verify-bundle /path/to/extracted/release --format json
 | Component | Availability | Purpose |
 | --- | --- | --- |
 | `agent` | Required | Owns devices, settings persistence, and local IPC |
-| `settings` | Reserved | Future primary desktop interface; unavailable until its application payload ships |
+| `settings` | Packaging-ready, not currently shipped | Native desktop interface; unavailable in a bundle unless it contains the application payload |
 | `tray` | Optional, currently default | Shows device status in the notification area or menu bar |
 | `cli` | Optional | Provides the `gflick` terminal interface |
 
-The current fresh-install default is `agent,tray`. A headless installation can select
-only `agent`, and an installation with every currently available user component uses
+The current published-bundle default is `agent,tray`. A headless installation can
+select only `agent`, and an installation with every component in those bundles uses
 `agent,tray,cli`. `probe` and `bench` are developer artifacts and are not installable
-components. When the settings application ships, its verified payload can make the
-desktop default `agent,settings,tray` without changing the agent.
+components. The Settings client exists in the source workspace, but the release
+workflow does not package it yet. A custom bundle built with a verified Settings
+application tree adds `settings` to its available components and defaults.
 
 Install the manifest defaults or choose a component set:
 
@@ -73,8 +74,9 @@ gflick-setup install --components agent,tray,cli
 ```
 
 The agent is always required. Setup rejects a final component set without it and
-rejects `settings` while its payload is absent. Re-running `install` repairs drift and
-updates files idempotently. Change optional components later with:
+rejects `settings` when the current bundle has no Settings payload. Re-running
+`install` repairs drift and updates files idempotently. Change optional components
+later with:
 
 ```sh
 gflick-setup modify --components agent,cli
@@ -82,15 +84,15 @@ gflick-setup modify --components agent,cli
 
 ## Installed locations
 
-Windows installs private binaries below `%LOCALAPPDATA%\gflick\bin`. The future
-settings application belongs below `%LOCALAPPDATA%\Programs\GFlick`. The agent and
+Windows installs private binaries below `%LOCALAPPDATA%\gflick\bin`. A packaged
+Settings application is installed below `%LOCALAPPDATA%\Programs\GFlick`. The agent and
 tray have independent `HKCU` login registrations; settings is not a login item. When
 the CLI is selected, setup adds the exact private bin directory to the current user's
 `PATH` only when it is absent and records ownership of that entry.
 
 Apple Silicon macOS installs private data below
-`~/Library/Application Support/gflick`, the tray as its private `GFlick.app`, and
-the future settings application as `~/Applications/GFlick.app`. The agent and tray
+`~/Library/Application Support/gflick`, the tray as its private `GFlick.app`, and a
+packaged Settings application as `~/Applications/GFlick.app`. The agent and tray
 have separate LaunchAgents; settings is not a LaunchAgent. The CLI is exposed as
 `~/.local/bin/gflick` without editing shell startup files. Status warns when
 `~/.local/bin` is not already on `PATH`.

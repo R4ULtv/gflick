@@ -81,7 +81,7 @@ struct MouseFeatures {
     mouse_button_filter: Option<FeatureInfo>,
 }
 
-/// High-level Logitech mouse API used by the probe and future background agent.
+/// High-level Logitech mouse API used by the probe and background agent.
 pub struct MouseDevice {
     session: HidppSession,
     features: MouseFeatures,

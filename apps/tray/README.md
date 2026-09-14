@@ -45,9 +45,8 @@ It does not continuously poll. It wakes for connection lifecycle, device lifecyc
 settings, or battery events. If the agent is unavailable, the icon changes to its
 offline presentation and the client retries every five seconds.
 
-The reusable transport lives in `crates/gflick-client`; future settings applications
-can use the same typed request and subscription API instead of duplicating local-socket
-framing.
+The reusable transport lives in `crates/gflick-client`; the Settings app uses the same
+typed request and subscription API instead of duplicating local-socket framing.
 
 During repair, update, or removal, `gflick-setup` uses a bounded per-user stop-request
 handshake so the tray can exit cleanly even while the agent is offline. The tray

@@ -49,10 +49,10 @@ const STEPS = [
     {
         n: "04",
         title: "Confirm it came up",
-        body: "The status command reports what is installed and whether the agent is running. Repair reinstalls anything missing or mismatched without touching your settings.",
+        body: "The status command reports what is installed and whether the agent is running. Re-running install repairs anything missing or mismatched without touching your settings.",
         commands: [
             { label: "Check", value: "gflick-setup status" },
-            { label: "Fix", value: "gflick-setup repair" },
+            { label: "Repair", value: "gflick-setup install" },
         ],
     },
 ];
@@ -75,8 +75,8 @@ const COMPONENTS = [
     ],
     [
         "settings",
-        "Reserved",
-        "The future primary interface. Cannot be selected until its real payload ships.",
+        "Packaging-ready, not shipped",
+        "The native client exists in source, but published bundles cannot select it until they include an application payload.",
     ],
 ];
 
@@ -91,7 +91,7 @@ const PATHS = [
 
 <Layout
     title="Setup - GFlick"
-    description="How to verify, install, inspect, repair, and remove an GFlick release bundle on Windows and Apple Silicon macOS."
+    description="How to verify, install, inspect, repair, and remove a GFlick release bundle on Windows and Apple Silicon macOS."
 >
     <Header />
 
@@ -197,10 +197,10 @@ const PATHS = [
                             partway through, the installer rolls the change back
                             rather than leaving a half-installed tree behind. <code
                                 >gflick-setup status</code
-                            > reports what is present and what is running; <code
-                                >repair</code
-                            > reinstalls anything missing or mismatched and leaves
-                            your settings alone.
+                            > reports what is present and what is running. Re-running <code
+                                >gflick-setup install</code
+                            > from the extracted bundle reinstalls anything missing or
+                            mismatched and leaves your settings alone.
                         </p>
                         <p>
                             Intel macOS is rejected outright rather than
