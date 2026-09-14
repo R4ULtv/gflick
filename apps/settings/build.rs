@@ -10,6 +10,11 @@ const DENSITIES: [f32; 2] = [1.0, 2.0];
 /// Maximum painted enclosure height; keep aligned with `preview::ART_HEIGHT`.
 const ENCLOSURE_HEIGHT: f32 = 330.0;
 
+/// The enclosure's height in a device-list row. A thumbnail is far too small to
+/// take from the large bake — an eleven-fold shrink on the GPU is mush — so it
+/// is filtered to size here like every other painting size.
+const THUMBNAIL_HEIGHT: f32 = 30.0;
+
 /// Asset stems and generated constants; all masters bake to one enclosure height.
 const PHOTOS: [(&str, &str); 13] = [
     ("pro-x-superlight-black.png", "SUPERLIGHT"),
@@ -58,36 +63,41 @@ fn main() {
             );
         }
 
-        let mut densities = String::new();
-        for scale_factor in DENSITIES {
-            let height = (ENCLOSURE_HEIGHT * scale_factor).round() as u32;
-            let width =
-                (cropped.width() as f32 * height as f32 / cropped.height() as f32).round() as u32;
+        let mut bakes = [String::new(), String::new()];
+        for (index, painted) in [ENCLOSURE_HEIGHT, THUMBNAIL_HEIGHT].into_iter().enumerate() {
+            let densities = &mut bakes[index];
+            for scale_factor in DENSITIES {
+                let height = (painted * scale_factor).round() as u32;
+                let width = (cropped.width() as f32 * height as f32 / cropped.height() as f32)
+                    .round() as u32;
 
-            let mut pixels = downsample(cropped.clone(), width, height);
-            // GPUI's RenderImage stores straight-alpha BGRA pixels.
-            for pixel in pixels.pixels_mut() {
-                pixel.0.swap(0, 2);
-            }
-            let blob = format!("{stem}@{scale_factor}x.bgra");
-            fs::write(out_dir.join(&blob), pixels.as_raw()).expect("write baked photo");
+                let mut pixels = downsample(cropped.clone(), width, height);
+                // GPUI's RenderImage stores straight-alpha BGRA pixels.
+                for pixel in pixels.pixels_mut() {
+                    pixel.0.swap(0, 2);
+                }
+                let blob = format!("{stem}@{painted}@{scale_factor}x.bgra");
+                fs::write(out_dir.join(&blob), pixels.as_raw()).expect("write baked photo");
 
-            writeln!(
-                densities,
-                "        Baked {{\n            \
+                writeln!(
+                    densities,
+                    "        Baked {{\n            \
                      scale_factor: {scale_factor:?},\n            \
                      width: {width},\n            \
                      height: {height},\n            \
                      bgra: include_bytes!(concat!(env!(\"OUT_DIR\"), \"/{blob}\")),\n        \
                  }},"
-            )
-            .expect("format density");
+                )
+                .expect("format density");
+            }
         }
 
+        let (densities, thumbnails) = (&bakes[0], &bakes[1]);
         writeln!(
             table,
             "const {name}: Photo = Photo {{\n    \
-                 densities: &[\n{densities}    ],\n\
+                 densities: &[\n{densities}    ],\n    \
+                 thumbnails: &[\n{thumbnails}    ],\n\
              }};"
         )
         .expect("format photo table");

@@ -10,6 +10,8 @@ use gpui_kit::{
 /// An enclosure-only photo baked at ascending display densities.
 struct Photo {
     densities: &'static [Baked],
+    /// The same enclosure at device-list size, filtered rather than shrunk.
+    thumbnails: &'static [Baked],
 }
 
 /// One density of a photo: straight-alpha BGRA, `width` by `height` pixels.
@@ -72,6 +74,8 @@ const G305_BUTTONS: [ButtonHotspot; 6] = [
 
 /// Shared callout artwork dimensions; `build.rs` bakes against `ART_HEIGHT`.
 pub const ART_WIDTH: Pixels = px(288.0);
+/// The enclosure's height in a device-list row, matching `build.rs`.
+pub const THUMBNAIL_HEIGHT: Pixels = px(30.0);
 pub const ART_HEIGHT: Pixels = px(330.0);
 /// The enclosure's height on a card banner, which is a glance rather than a map.
 const CARD_HEIGHT: Pixels = px(256.0);
@@ -118,11 +122,22 @@ impl MouseModel {
     /// The bake to paint on a display of this density: the first that is at
     /// least as dense, so the GPU shrinks rather than blurs when it has to.
     fn baked(self, color: DeviceColor, scale_factor: f32) -> &'static Baked {
-        let densities = self.photo(color).densities;
-        densities
-            .iter()
-            .find(|baked| baked.scale_factor >= scale_factor)
-            .unwrap_or(&densities[densities.len() - 1])
+        density(self.photo(color).densities, scale_factor)
+    }
+
+    /// The enclosure at device-list size, with its width over its height.
+    /// Textures are shared between rows, which are redrawn far too often to
+    /// build one, and the bake is filtered for this size rather than shrunk
+    /// from the page-sized one.
+    pub fn thumbnail(self, color: DeviceColor, scale_factor: f32) -> (Arc<RenderImage>, f32) {
+        let baked = density(self.photo(color).thumbnails, scale_factor);
+        let image = THUMBNAILS.with_borrow_mut(|cache| {
+            cache
+                .entry((self, color, baked.height))
+                .or_insert_with(|| texture(baked))
+                .clone()
+        });
+        (image, baked.width as f32 / baked.height as f32)
     }
     pub fn label(self) -> &'static str {
         match self {
@@ -176,6 +191,26 @@ pub enum Art {
     Callouts,
 }
 
+thread_local! {
+    static THUMBNAILS: std::cell::RefCell<HashMap<(MouseModel, DeviceColor, u32), Arc<RenderImage>>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// The bake to paint on a display of this density: the first that is at least
+/// as dense, so the GPU shrinks rather than blurs when it has to.
+fn density(bakes: &'static [Baked], scale_factor: f32) -> &'static Baked {
+    bakes
+        .iter()
+        .find(|baked| baked.scale_factor >= scale_factor)
+        .unwrap_or(&bakes[bakes.len() - 1])
+}
+
+fn texture(baked: &'static Baked) -> Arc<RenderImage> {
+    let pixels = image::RgbaImage::from_raw(baked.width, baked.height, baked.bgra.to_vec())
+        .expect("baked photo covers its own dimensions");
+    Arc::new(RenderImage::new([image::Frame::new(pixels)]))
+}
+
 pub struct MousePreview {
     model: MouseModel,
     color: DeviceColor,
@@ -214,12 +249,7 @@ impl MousePreview {
         let baked = self.model.baked(self.color, scale_factor);
         self.textures
             .entry((self.model, self.color, baked.height))
-            .or_insert_with(|| {
-                let pixels =
-                    image::RgbaImage::from_raw(baked.width, baked.height, baked.bgra.to_vec())
-                        .expect("baked photo covers its own dimensions");
-                Arc::new(RenderImage::new([image::Frame::new(pixels)]))
-            })
+            .or_insert_with(|| texture(baked))
             .clone()
     }
 }

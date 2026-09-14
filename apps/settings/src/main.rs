@@ -65,8 +65,13 @@ const CALLOUT_LINE: Pixels = px(1.5);
 /// them. Kit collapses its own sidebar to 48px; this one carries 36px targets.
 const SIDEBAR_RAIL_WIDTH: Pixels = px(56.0);
 const SIDEBAR_RAIL_PAD: Pixels = px(10.0);
-/// A rail target: square, so its mark sits in the middle of it.
+/// A rail target: wide enough for a 36px mark, tall enough to carry the mouse
+/// and its charge one above the other.
 const RAIL_BUTTON: Pixels = px(36.0);
+const RAIL_TILE: Pixels = px(52.0);
+/// The enclosure's height on the rail. Smaller than a list row's: the tile has
+/// to hold the charge cell as well.
+const RAIL_ART: Pixels = px(26.0);
 /// How long the sidebar's state waits before it is written, so a burst of
 /// presses settles into one save.
 const SIDEBAR_SAVE_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
@@ -194,18 +199,41 @@ impl LinkState {
     }
 }
 
+/// The mouse itself, at the size the list paints it. A device is recognised by
+/// its shape and finish before its name is read, on the rail especially, where
+/// there is no name to read.
+fn device_thumbnail(device: &DeviceSummary, height: Pixels, scale: f32) -> Div {
+    let photo =
+        preview::MouseModel::for_device(device).map(|model| model.thumbnail(device.color, scale));
+    div()
+        .h(height)
+        .flex_shrink_0()
+        .when_some(photo, |el, (photo, aspect)| {
+            el.w(height * aspect)
+                .child(gpui_kit::img(photo).size_full().flex_shrink_0())
+        })
+        // An unidentified model keeps the column, so the names stay in line.
+        .when(photo_missing(device), |el| el.w(height / 2.0))
+}
+
+fn photo_missing(device: &DeviceSummary) -> bool {
+    preview::MouseModel::for_device(device).is_none()
+}
+
 fn device_card(
     device: &DeviceSummary,
     battery: Option<&gflick_protocol::BatteryState>,
     backdrop: u32,
     status: LinkState,
+    scale: f32,
 ) -> Div {
     div()
         .flex()
         .items_center()
-        .gap_3()
+        .gap(px(10.0))
         .p(px(11.0))
         .rounded_lg()
+        .child(device_thumbnail(device, preview::THUMBNAIL_HEIGHT, scale))
         .child(
             div()
                 .min_w_0()
@@ -275,6 +303,7 @@ impl Render for DeviceDragCard {
                 self.drag.battery.as_ref(),
                 SELECTED_ROW,
                 self.drag.status,
+                window.scale_factor(),
             )
             .ml(SIDEBAR_PAD - origin_x)
             // The card is off the sidebar now, so it carries its own surface
@@ -696,26 +725,55 @@ impl SettingsView {
     }
 
     /// One device as the rail draws it: its charge.
-    fn rail_device_mark(
-        &self,
-        device: &DeviceSummary,
-        status: LinkState,
-        selected: bool,
-    ) -> gpui_kit::AnyElement {
-        if !device.ready {
-            return Icon::new(status.icon(device))
-                .with_size(px(16.0))
-                .text_color(rgb(MUTED_2))
-                .into_any_element();
-        }
+    /// A rail tile: the mouse, and under it the one thing the expanded row says
+    /// in words — its charge, or why it is not reporting one.
+    fn rail_device_mark(&self, device: &DeviceSummary, status: LinkState, scale: f32) -> Div {
         let battery = self.battery_of(device);
-        battery_cell(
-            battery.map(|b| b.percentage.min(100)),
-            battery_tone(battery, device),
-            if selected { SELECTED_ROW } else { DEEP },
-            charge(battery) == Charge::Charging,
-        )
-        .into_any_element()
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            // The charge stands off the enclosure rather than under its wheel.
+            .gap(px(7.0))
+            .child(device_thumbnail(device, RAIL_ART, scale))
+            .child(if device.ready {
+                let tone = battery_tone(battery, device);
+                // The figure, not the cell: a tile this narrow reads a number
+                // more cleanly than a drawing of a battery.
+                div()
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(1.0))
+                    .when(charge(battery) == Charge::Charging, |el| {
+                        el.child(icons::bolt().with_size(px(9.0)).text_color(rgb(tone)))
+                    })
+                    .child(
+                        div()
+                            .text_size(theme::text::MICRO)
+                            .font_semibold()
+                            .text_color(rgb(tone))
+                            .child(
+                                battery
+                                    .map(|battery| format!("{}%", battery.percentage.min(100)))
+                                    .unwrap_or_else(|| "\u{2013}".into()),
+                            ),
+                    )
+                    .into_any_element()
+            } else {
+                div()
+                    .w_full()
+                    .flex()
+                    .justify_center()
+                    .child(
+                        Icon::new(status.icon(device))
+                            .with_size(px(12.0))
+                            .text_color(rgb(MUTED_2)),
+                    )
+                    .into_any_element()
+            })
     }
 
     fn sidebar_frame(&self, cx: &Context<Self>) -> Div {
@@ -770,17 +828,18 @@ impl SettingsView {
     }
 
     /// The collapsed sidebar: one glyph per device, named by its tooltip.
-    fn render_sidebar_rail(&self, cx: &Context<Self>) -> Div {
+    fn render_sidebar_rail(&self, scale: f32, cx: &Context<Self>) -> Div {
         let devices = self.devices.iter().map(|device| {
             let status = self.link_state(device);
             let id = device.id.clone();
             let selected = self.selected_id.as_deref() == Some(device.id.as_str());
             Button::new(SharedString::from(format!("rail-{}", device.id)))
                 .ghost()
-                .size(RAIL_BUTTON)
+                .w(RAIL_BUTTON)
+                .h(RAIL_TILE)
                 .p_0()
                 .selected(selected)
-                .child(self.rail_device_mark(device, status, selected))
+                .child(self.rail_device_mark(device, status, scale))
                 .tooltip(SharedString::from(match self.battery_of(device) {
                     Some(battery) if device.ready => format!(
                         "{} \u{b7} {}% \u{b7} {}",
@@ -813,7 +872,9 @@ impl SettingsView {
                     .flex()
                     .flex_col()
                     .items_center()
-                    .gap_1()
+                    // Taller tiles need a clearer break between them than the
+                    // glyph-sized ones they replaced.
+                    .gap(px(6.0))
                     .children(devices)
                     .overflow_y_scrollbar(),
             )
@@ -863,9 +924,9 @@ impl SettingsView {
             )
     }
 
-    fn render_sidebar(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+    fn render_sidebar(&self, scale: f32, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         if self.sidebar_collapsed {
-            return self.render_sidebar_rail(cx).into_any_element();
+            return self.render_sidebar_rail(scale, cx).into_any_element();
         }
         let rows = self.devices.iter().enumerate().map(|(index, device)| {
             let status = self.link_state(device);
@@ -940,6 +1001,7 @@ impl SettingsView {
                     battery,
                     if selected { SELECTED_ROW } else { DEEP },
                     status,
+                    scale,
                 ))
         });
         self.sidebar_frame(cx)
@@ -1951,7 +2013,7 @@ impl Render for SettingsView {
             .flex()
             .font_family(".SystemUIFont")
             .bg(rgb(BG))
-            .child(self.render_sidebar(cx))
+            .child(self.render_sidebar(window.scale_factor(), cx))
             .child(self.render_content(content_width, cx))
             .children(Root::render_dialog_layer(window, cx))
             .when(self.show_fps, |el| {
