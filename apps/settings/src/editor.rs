@@ -80,9 +80,7 @@ struct Field {
     /// Sensitivity is a point on a range, so its field carries a slider. The
     /// number and the slider are two views of the one draft value.
     slider: Option<Entity<SliderState>>,
-    /// The track width the scale under it was last fitted to. The track only
-    /// measures itself as it paints, so a first guess is corrected on the
-    /// frame after the real width is known.
+    /// Last measured track width, used to refit the scale after layout.
     scale_width: Cell<f32>,
 }
 pub struct Editor {
@@ -436,9 +434,7 @@ fn note_half_width(dpi: u16) -> f32 {
 /// The air left between two notes, so the scale reads as separate numbers.
 const NOTE_GAP: f32 = 8.0;
 
-/// Where a note is drawn along the track, in pixels from its left end. The two
-/// ends hang inside the track rather than centring on it, so they are measured
-/// from their own edge.
+/// A note's track position, with endpoint labels kept inside the bounds.
 fn note_centre(dpi: u16, track: Track, width: f32) -> f32 {
     match f32::from(dpi) {
         dpi if dpi <= track.min => note_half_width(track.min as u16),
@@ -447,9 +443,7 @@ fn note_centre(dpi: u16, track: Track, width: f32) -> f32 {
     }
 }
 
-/// The notes a track has room for. Everything fits on a wide card; on a narrow
-/// one the crowded middle gives way, keeping the value in force, the two ends,
-/// and then the roundest settings.
+/// Fits labels without overlap, prioritizing the current value, endpoints, and presets.
 fn fitted_notes(spec: &Spec, value: &str, track: Track, width: f32) -> Vec<u16> {
     let centre = |dpi: u16| note_centre(dpi, track, width);
     // What is read first is kept first: the value in force, then the two ends,
@@ -492,16 +486,11 @@ fn dpi_range(state: &DeviceState) -> Option<(f32, f32)> {
     (min > 0.0 && max > min).then_some((min, max))
 }
 
-/// The share of the track given to the range below the settings people use,
-/// and to the range above them. A sensor that reads to 44,000 DPI spends most
-/// of its range on values nobody plays at; folding those into short tails
-/// leaves the middle for the settings that are actually chosen.
+/// Track shares reserved for uncommon low and high DPI ranges.
 const TRACK_HEAD: f32 = 0.1;
 const TRACK_TAIL: f32 = 0.2;
 
-/// How a sensitivity maps onto the length of a track. Each of the three
-/// stretches is logarithmic, so a doubling covers the same distance inside
-/// one, and the two ends of the sensor's range are compressed into the tails.
+/// Piecewise-logarithmic DPI track with compressed outer ranges.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Track {
     min: f32,
@@ -619,9 +608,7 @@ fn dpi_text(value: u16) -> String {
     grouped
 }
 
-/// What is written under a track: its two ends, and the settings people reach
-/// for that fall between them. The common ones carry their own weight as a
-/// scale, so the track needs no second row of buttons under it.
+/// Slider scale labels: endpoints plus available common presets.
 fn scale_notes(spec: &Spec, min: f32, max: f32) -> Vec<u16> {
     let mut notes = vec![min.round() as u16];
     notes.extend(
@@ -1703,9 +1690,7 @@ mod tests {
         assert!((track.at(1131.0) - 0.5).abs() < 0.01);
     }
 
-    /// A wide card writes every common setting under the track; a narrow one
-    /// drops from the crowded middle, never the value it is pointing at, and
-    /// never leaves two labels on top of one another.
+    /// Scale labels thin without losing endpoints/current value or overlapping.
     #[test]
     fn the_scale_thins_to_the_width_it_is_given() {
         let spec = common(&[400, 800, 1200, 1600, 2400, 3200]);
