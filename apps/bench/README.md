@@ -1,11 +1,11 @@
-# GFlick benchmark
+# gflick benchmark
 
 `gflick-bench` is a native release-mode recorder for repeatable measurements of
 long-running process groups on Windows and macOS. It is intended for comparisons such
-as GFlick versus the complete resident G Hub stack.
+as gflick versus the complete resident G Hub stack.
 
 The recorder measures operating-system process counters. It does not inject code into
-the target and does not communicate with GFlick IPC. It writes:
+the target and does not communicate with gflick IPC. It writes:
 
 - a versioned JSON report containing metadata, a summary, and every sample;
 - a CSV file beside the JSON report for plotting and independent analysis.
@@ -32,7 +32,7 @@ For comparable results:
    games, or other foreground work during a measurement.
 5. Record at least three runs per stack. Alternate their order when practical so time
    and temperature do not consistently favor one application.
-6. Use 30-minute measurements for a serious idle comparison. This covers several GFlick
+6. Use 30-minute measurements for a serious idle comparison. This covers several gflick
   five-minute battery queries and makes very small CPU-time totals measurable.
 
 The default two-second interval captures accumulated CPU and I/O between samples; it
@@ -55,10 +55,10 @@ result, but it is not yet the final isolated three-run benchmark described above
 | Recorded duration | 1,800 seconds per recorder |
 | Sample interval | 2 seconds |
 | Process rediscovery | 5 seconds |
-| GFlick group | `gflick-agent` |
+| gflick group | `gflick-agent` |
 | G Hub group | `lghub_agent`, `lghub_system_tray`, `lghub_updater` |
 
-GFlick recording began at 10:39:16 CEST and G Hub recording began at 10:43:22 CEST.
+gflick recording began at 10:39:16 CEST and G Hub recording began at 10:43:22 CEST.
 The two recorders therefore overlapped for approximately 25 minutes 54 seconds. Both
 mouse stacks were resident during the measurements, and two recorder processes sampled
 concurrently for most of the test. The counters below still belong directly to their
@@ -67,7 +67,7 @@ not an isolated sequential A/B test.
 
 ### Target process results
 
-| Metric | GFlick | G Hub | GFlick / G Hub | Reduction |
+| Metric | gflick | G Hub | gflick / G Hub | Reduction |
 | --- | ---: | ---: | ---: | ---: |
 | Accumulated CPU time | 1,890 ms | 6,937 ms | 0.272x | 72.8% |
 | Average CPU, one-core basis | 0.1050% | 0.3854% | 0.272x | 72.8% |
@@ -90,7 +90,7 @@ described as physical disk traffic alone.
 
 ### Validity and observer overhead
 
-| Check | GFlick run | G Hub run |
+| Check | gflick run | G Hub run |
 | --- | ---: | ---: |
 | Matched samples | 900 / 900 | 900 / 900 |
 | Missing samples | 0 | 0 |
@@ -125,20 +125,20 @@ not the final alternating three-run comparison recommended above.
 | Warm-up | 120 seconds per recorder |
 | Recorded duration | 1,800 seconds per recorder |
 | Sample interval | 2 seconds |
-| GFlick group | `gflick-agent`, `gflick-tray` |
+| gflick group | `gflick-agent`, `gflick-tray` |
 | G Hub group | `lghub_agent`, `lghub_system_tray`, `lghub_updater` |
 
-G Hub was measured first with its settings window closed. GFlick was then measured
+G Hub was measured first with its settings window closed. gflick was then measured
 from commit `0b648be`, with the mouse in host/local control so its saved 1600 DPI was
 restored. The stacks were not allowed to own the mouse concurrently because starting
 G Hub immediately changed the live DPI to its configured value. Quitting G Hub stopped
 its user-session agent and tray, but its root-owned updater remained resident during the
-GFlick run. That updater is excluded from the GFlick target counters, so the target
+gflick run. That updater is excluded from the gflick target counters, so the target
 comparison is useful, but the run is not a fully isolated whole-system energy test.
 
 ### Target process results
 
-| Metric | GFlick | G Hub | GFlick / G Hub | Reduction |
+| Metric | gflick | G Hub | gflick / G Hub | Reduction |
 | --- | ---: | ---: | ---: | ---: |
 | Accumulated CPU time | 3,621 ms | 3,403 ms | 1.064x | -6.4% |
 | Average CPU, one-core basis | 0.2012% | 0.1891% | 1.064x | -6.4% |
@@ -153,7 +153,7 @@ comparison is useful, but the run is not a fully isolated whole-system energy te
 | I/O write total | 0 bytes | 0 bytes | n/a | n/a |
 | Resident process count | 2 | 3 | 0.667x | 33.3% |
 
-GFlick used approximately 7.4 times less mean resident memory and 4,492 times less
+gflick used approximately 7.4 times less mean resident memory and 4,492 times less
 read I/O per second. It did not use less CPU in this run: accumulated target CPU was
 6.4% higher than G Hub, and its short sample peaks were higher. macOS virtual-memory
 figures include large shared address-space mappings and should not be interpreted as
@@ -161,7 +161,7 @@ physical memory pressure.
 
 ### Validity and observer overhead
 
-| Check | GFlick run | G Hub run |
+| Check | gflick run | G Hub run |
 | --- | ---: | ---: |
 | Matched samples | 900 / 900 | 900 / 900 |
 | Missing samples | 0 | 0 |
@@ -173,12 +173,12 @@ physical memory pressure.
 | Recorder CPU, one-core basis | 0.266% | 0.311% |
 
 Both reports are complete and every target process remained stable. System load was
-somewhat noisier during the GFlick run, and the recorder itself used more CPU than
+somewhat noisier during the gflick run, and the recorder itself used more CPU than
 either target group. Repeat at least three alternating runs before treating the small
 CPU difference as representative. These process counters are a development baseline,
 not a direct energy or battery-life measurement.
 
-## Record GFlick
+## Record gflick
 
 The installed agent must already be running. This command excludes two minutes of
 warm-up and then records 30 minutes:
@@ -220,8 +220,8 @@ Repeat with `g-hub-2.json` and `g-hub-3.json`.
 
 ## Compare the median of three runs
 
-The ratio is `candidate / baseline`. With G Hub as the baseline and GFlick as the
-candidate, a value below `1.0x` means GFlick used less of that resource.
+The ratio is `candidate / baseline`. With G Hub as the baseline and gflick as the
+candidate, a value below `1.0x` means gflick used less of that resource.
 
 ```powershell
 ./target/release/gflick-bench compare `

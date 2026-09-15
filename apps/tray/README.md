@@ -1,4 +1,4 @@
-# GFlick tray
+# gflick tray
 
 `gflick-tray` is a lightweight native companion to the headless agent. It is a
 notification-area app on Windows and a menu-bar status item on macOS. It never opens HID
@@ -15,11 +15,11 @@ The menu shows:
 
 The macOS status-item title also shows the primary mouse's battery and DPI without
 opening the menu. On Windows the same summary is available by hovering over the tray
-icon. `Refresh` requests a fresh device snapshot. `Quit GFlick` gracefully stops the
+icon. `Refresh` requests a fresh device snapshot. `Quit gflick` gracefully stops the
 agent and closes the tray, matching the lifecycle users expect from the visible app.
 
 Windows uses the multi-resolution `assets/favicon.ico` for the executable and tray.
-macOS installs a background `GFlick.app` bundle with `assets/favicon.icns`, while its
+macOS installs a background `gflick.app` bundle with `assets/favicon.icns`, while its
 menu-bar item uses the monochrome, transparent `assets/tray-template.png` so the system
 can adapt it to light, dark, and highlighted appearances.
 

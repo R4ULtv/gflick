@@ -361,7 +361,7 @@ fn group_help(group: &str) -> &'static str {
         "Configuration" => "Whether the mouse follows this app or its own onboard profile.",
         "Lighting" => "Written when you apply. The agent cannot read current lighting back.",
         "Presentation" => {
-            "How this mouse is named and pictured in GFlick. Neither is written to the device."
+            "How this mouse is named and pictured in gflick. Neither is written to the device."
         }
         _ => "",
     }

@@ -962,7 +962,7 @@ mod tests {
         let nested = platform
             .paths
             .user_applications
-            .join("GFlick.app/Contents/Resources/icon.icns");
+            .join("gflick.app/Contents/Resources/icon.icns");
         plan.files.push(PreparedFile {
             component: Some(Component::Settings),
             source: nested_source,
@@ -976,7 +976,7 @@ mod tests {
         plan.new_state.files.push(InstalledFile {
             component: Some(Component::Settings),
             root: InstallRoot::UserApplications,
-            destination: "GFlick.app/Contents/Resources/icon.icns".into(),
+            destination: "gflick.app/Contents/Resources/icon.icns".into(),
             length: 4,
             sha256: "33".repeat(32),
             executable: false,
@@ -1086,7 +1086,7 @@ mod tests {
         let installed = RegistrationState {
             records: vec![RegistrationRecord {
                 kind: RegistrationKind::SettingsLauncher,
-                location: "GFlick.lnk".into(),
+                location: "gflick.lnk".into(),
                 value: "gflick-settings.exe".into(),
                 owned: true,
             }],
@@ -1102,7 +1102,7 @@ mod tests {
         let changed = RegistrationState {
             records: vec![RegistrationRecord {
                 kind: RegistrationKind::SettingsLauncher,
-                location: "GFlick.lnk".into(),
+                location: "gflick.lnk".into(),
                 value: "user-settings.exe".into(),
                 owned: false,
             }],
@@ -1265,7 +1265,7 @@ mod tests {
         let managed = platform
             .paths
             .user_applications
-            .join("Contents/MacOS/GFlick");
+            .join("Contents/MacOS/gflick");
         fs::create_dir_all(managed.parent().unwrap()).unwrap();
         fs::write(&managed, b"settings").unwrap();
         let sentinel = platform.paths.user_applications.join("unrelated.txt");

@@ -21,7 +21,7 @@ use gflick_protocol as protocol;
 const MAX_NICKNAME_CHARS: usize = 64;
 
 #[derive(Debug, Parser)]
-#[command(name = "gflick-agent", about = "Low-overhead GFlick mouse agent")]
+#[command(name = "gflick-agent", about = "Low-overhead gflick mouse agent")]
 struct Cli {
     /// Seconds between USB device discovery passes.
     #[arg(long, default_value_t = 5)]
@@ -1824,7 +1824,7 @@ fn main() -> Result<()> {
     )?;
 
     if cli.once {
-        println!("GFlick agent one-shot discovery; no settings will be changed.");
+        println!("gflick agent one-shot discovery; no settings will be changed.");
         agent.tick()?;
         return Ok(());
     }
@@ -1840,7 +1840,7 @@ fn main() -> Result<()> {
         install_shutdown_handler(&shutdown)?;
     }
     println!(
-        "GFlick agent started; IPC protocol v{} is ready.",
+        "gflick agent started; IPC protocol v{} is ready.",
         protocol::PROTOCOL_VERSION
     );
     let background_battery_interval = agent.battery_interval;
@@ -1878,7 +1878,7 @@ fn main() -> Result<()> {
     }
     ipc.publish(protocol::AgentEvent::ApplicationShuttingDown);
     agent.shutdown();
-    println!("GFlick agent stopped cleanly.");
+    println!("gflick agent stopped cleanly.");
     Ok(())
 }
 

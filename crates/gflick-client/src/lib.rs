@@ -1,4 +1,4 @@
-//! Typed synchronous client for the GFlick local IPC protocol.
+//! Typed synchronous client for the gflick local IPC protocol.
 
 use std::{
     io::{BufRead, BufReader, Read, Write},
@@ -23,7 +23,7 @@ pub fn request(command: RequestCommand) -> Result<ResponseData> {
         protocol_version: PROTOCOL_VERSION,
         command,
     };
-    let stream = connect().context("could not connect to the GFlick agent")?;
+    let stream = connect().context("could not connect to the gflick agent")?;
     write_message(&stream, &request)?;
     let mut reader = BufReader::new(stream);
     match read_message(&mut reader)? {
@@ -77,7 +77,7 @@ impl EventSubscription {
             protocol_version: PROTOCOL_VERSION,
             command,
         };
-        let stream = connect().context("could not connect to the GFlick agent")?;
+        let stream = connect().context("could not connect to the gflick agent")?;
         write_message(&stream, &request)?;
         let mut reader = BufReader::new(stream);
         match read_message(&mut reader)? {

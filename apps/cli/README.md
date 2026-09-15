@@ -1,6 +1,6 @@
-# GFlick CLI
+# gflick CLI
 
-`gflick` is the user-facing command-line client for a running GFlick background
+`gflick` is the user-facing command-line client for a running gflick background
 agent. It sends requests over the local IPC endpoint; it never opens HID devices
 directly. Start or install the agent before using this command.
 
@@ -59,7 +59,7 @@ device snapshots include only the settings currently reported by a ready device.
 
 Successful commands exit 0. Invalid command-line usage exits 2. Other failures,
 including an unreachable agent, exit 1. If the agent is not running, start or install
-the GFlick background agent; the CLI does not fall back to direct HID access.
+the gflick background agent; the CLI does not fall back to direct HID access.
 
 ## Examples
 

@@ -1,4 +1,4 @@
-//! Versioned JSON protocol shared by the GFlick agent and settings clients.
+//! Versioned JSON protocol shared by the gflick agent and settings clients.
 
 use serde::{Deserialize, Serialize};
 
@@ -354,7 +354,7 @@ impl DeviceColor {
     }
 }
 
-/// Models for which GFlick has verified enclosure artwork.
+/// Models for which gflick has verified enclosure artwork.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceModel {
     Superlight,

@@ -206,12 +206,12 @@ fn lighting_to_protocol(value: LightingCommand) -> LightingEffect {
 
 pub fn ipc_context(error: anyhow::Error) -> anyhow::Error {
     let text = error.to_string();
-    if text.contains("could not connect to the GFlick agent") {
+    if text.contains("could not connect to the gflick agent") {
         anyhow::anyhow!(
-            "the GFlick background agent is not running; install or start it, then try again"
+            "the gflick background agent is not running; install or start it, then try again"
         )
     } else {
-        error.context("GFlick command failed")
+        error.context("gflick command failed")
     }
 }
 

@@ -1,6 +1,6 @@
-# GFlick probe
+# gflick probe
 
-`gflick-probe` is the low-level Logitech HID/HID++ diagnostic and configuration utility used while developing GFlick. It can inspect protocol features, exercise live settings, and perform guarded onboard-profile writes.
+`gflick-probe` is the low-level Logitech HID/HID++ diagnostic and configuration utility used while developing gflick. It can inspect protocol features, exercise live settings, and perform guarded onboard-profile writes.
 
 The probe is not the normal user interface. Use the [`gflick` CLI](../cli/README.md) for day-to-day configuration through the agent. The probe opens HID interfaces directly and is intended for controlled hardware investigation.
 

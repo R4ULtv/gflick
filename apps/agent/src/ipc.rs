@@ -164,7 +164,7 @@ impl IpcHandle {
 }
 
 pub fn start() -> Result<IpcHandle> {
-    let listener = create_listener().context("failed to create the GFlick local socket")?;
+    let listener = create_listener().context("failed to create the gflick local socket")?;
     let (request_tx, request_rx) = mpsc::channel();
     let subscribers = Arc::new(Mutex::new(Vec::new()));
     let listener_subscribers = Arc::clone(&subscribers);
@@ -184,7 +184,7 @@ pub fn send_request(request_json: &str) -> Result<String> {
     if request_json.len() > MAX_MESSAGE_BYTES {
         bail!("request exceeds the {MAX_MESSAGE_BYTES}-byte IPC limit");
     }
-    let stream = connect().context("could not connect to the GFlick agent")?;
+    let stream = connect().context("could not connect to the gflick agent")?;
     let mut writer = &stream;
     writer.write_all(request_json.as_bytes())?;
     writer.write_all(b"\n")?;
@@ -204,7 +204,7 @@ pub fn print_event_stream(max_events: Option<usize>) -> Result<()> {
         protocol_version: PROTOCOL_VERSION,
         command: RequestCommand::Subscribe,
     };
-    let stream = connect().context("could not connect to the GFlick agent")?;
+    let stream = connect().context("could not connect to the gflick agent")?;
     let mut writer = &stream;
     serde_json::to_writer(&mut writer, &request)?;
     writer.write_all(b"\n")?;

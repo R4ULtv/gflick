@@ -908,7 +908,7 @@ mod tests {
     #[test]
     fn normalizes_windows_and_unix_process_names() {
         assert_eq!(
-            normalize_process_name("GFlick-Agent.EXE".as_ref()),
+            normalize_process_name("gflick-Agent.EXE".as_ref()),
             "gflick-agent"
         );
         assert_eq!(

@@ -494,7 +494,7 @@ impl SettingsView {
                         .child(ui::card_header(
                             IconName::Settings,
                             "Startup",
-                            "What GFlick runs when you sign in.",
+                            "What gflick runs when you sign in.",
                         ))
                         .child(ui::card_rows(vec![
                             service(
@@ -525,7 +525,7 @@ impl SettingsView {
                     el.child(ui::notice(
                         IconName::TriangleAlert,
                         theme::WARNING,
-                        "With this off, nothing GFlick holds for your mouse is written after a \
+                        "With this off, nothing gflick holds for your mouse is written after a \
                          restart — you have to open this app for your settings to reach it. The \
                          agent idles between changes, so leaving it on is the same as not \
                          running it as far as your machine is concerned.",
@@ -588,7 +588,7 @@ impl SettingsView {
                                                 .font_semibold()
                                                 .text_color(rgb(TEXT))
                                                 .child(ui::dot(agent_tone))
-                                                .child("GFlick Agent"),
+                                                .child("gflick Agent"),
                                         )
                                         .child(
                                             div()

@@ -18,8 +18,8 @@ use crate::manifest::Component;
 
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 const ENVIRONMENT_KEY: &str = r"HKCU\Environment";
-const AGENT_VALUE: &str = "GFlickAgent";
-const TRAY_VALUE: &str = "GFlickTray";
+const AGENT_VALUE: &str = "gflickAgent";
+const TRAY_VALUE: &str = "gflickTray";
 const PATH_VALUE: &str = "Path";
 
 #[derive(Clone, Debug, Default)]
@@ -41,7 +41,7 @@ impl PlatformBackend for WindowsPlatform {
             install_root: root.clone(),
             private_bin: root.join("bin"),
             private_app: root.join("app"),
-            user_applications: base.data_local_dir().join("Programs/GFlick"),
+            user_applications: base.data_local_dir().join("Programs/gflick"),
             user_local_bin: root.join("bin"),
             state_file: root.join("install-state.json"),
             tray_ready: root.join("tray.ready"),
@@ -244,7 +244,7 @@ fn settings_shortcut() -> Result<PathBuf> {
         .data_dir()
         .parent()
         .map_or_else(|| base.data_dir().to_path_buf(), Path::to_path_buf);
-    Ok(app_data.join("Roaming/Microsoft/Windows/Start Menu/Programs/GFlick.lnk"))
+    Ok(app_data.join("Roaming/Microsoft/Windows/Start Menu/Programs/gflick.lnk"))
 }
 
 #[cfg(windows)]
@@ -491,7 +491,7 @@ mod tests {
     fn parses_quoted_run_value_with_spaces() {
         let output = r#"
 HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
-    GFlickAgent    REG_SZ    "C:\Users\Test User\gflick-agent.exe" --background-worker
+    gflickAgent    REG_SZ    "C:\Users\Test User\gflick-agent.exe" --background-worker
 "#;
         assert_eq!(
             parse_registry_value(output, AGENT_VALUE).as_deref(),
@@ -511,8 +511,8 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
     #[test]
     fn startup_commands_are_independent() {
         let paths = PlatformPaths {
-            install_root: PathBuf::from(r"C:\GFlick"),
-            private_bin: PathBuf::from(r"C:\GFlick\bin"),
+            install_root: PathBuf::from(r"C:\gflick"),
+            private_bin: PathBuf::from(r"C:\gflick\bin"),
             private_app: PathBuf::new(),
             user_applications: PathBuf::new(),
             user_local_bin: PathBuf::new(),
@@ -524,13 +524,13 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
         };
         assert!(agent_command(&paths).contains("--background-worker"));
         assert!(!agent_command(&paths).contains("gflick-tray"));
-        assert_eq!(tray_command(&paths), r#""C:\GFlick\bin\gflick-tray.exe""#);
+        assert_eq!(tray_command(&paths), r#""C:\gflick\bin\gflick-tray.exe""#);
     }
 
     #[test]
     fn preexisting_registrations_are_never_claimed_or_overwritten() {
         let kind = RegistrationKind::AgentStartup;
-        let expected = r#""C:\GFlick\gflick-agent.exe" --background-worker"#;
+        let expected = r#""C:\gflick\gflick-agent.exe" --background-worker"#;
         let exact = RegistrationState {
             records: vec![record(kind, "existing".into(), expected.into(), false)],
             path_warning: None,
@@ -553,7 +553,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
             records: vec![record(
                 RegistrationKind::CliExposure,
                 "PATH".into(),
-                r"C:\GFlick\bin".into(),
+                r"C:\gflick\bin".into(),
                 false,
             )],
             path_warning: None,
@@ -566,7 +566,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
         let existing = RegistrationState {
             records: vec![record(
                 RegistrationKind::SettingsLauncher,
-                "GFlick.lnk".into(),
+                "gflick.lnk".into(),
                 "<pre-existing shortcut>".into(),
                 false,
             )],
@@ -576,7 +576,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
             registration_decision(
                 &existing,
                 RegistrationKind::SettingsLauncher,
-                r"C:\GFlick\gflick-settings.exe"
+                r"C:\gflick\gflick-settings.exe"
             )
             .is_err()
         );
@@ -585,8 +585,8 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
     #[test]
     fn powershell_paths_escape_single_quotes() {
         assert_eq!(
-            powershell_path(Path::new(r"C:\Users\O'Brien\GFlick.lnk")),
-            r"C:\Users\O''Brien\GFlick.lnk"
+            powershell_path(Path::new(r"C:\Users\O'Brien\gflick.lnk")),
+            r"C:\Users\O''Brien\gflick.lnk"
         );
     }
 }

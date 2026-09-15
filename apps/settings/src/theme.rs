@@ -1,4 +1,4 @@
-//! GFlick's palette and its GPUI Kit mapping, based on the settings-studio design.
+//! gflick's palette and its GPUI Kit mapping, based on the settings-studio design.
 use gpui_kit::component::{Theme, ThemeMode, ThemeTokens};
 use gpui_kit::{App, Hsla, px, rgb, transparent_black};
 
@@ -60,7 +60,7 @@ fn color(hex: u32) -> Hsla {
     rgb(hex).into()
 }
 
-/// Switch to dark mode and replace Kit's palette with GFlick's.
+/// Switch to dark mode and replace Kit's palette with gflick's.
 pub fn apply(cx: &mut App) {
     Theme::change(ThemeMode::Dark, None, cx);
 

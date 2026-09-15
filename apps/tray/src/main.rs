@@ -74,7 +74,7 @@ impl TrayApp {
             .with_menu_on_left_click(true)
             .with_tooltip(self.state.tooltip())
             .build()
-            .context("failed to create the GFlick tray icon")?;
+            .context("failed to create the gflick tray icon")?;
         self.tray = Some(tray);
         Ok(())
     }
@@ -115,7 +115,7 @@ impl ApplicationHandler<UserEvent> for TrayApp {
         if self.tray.is_none()
             && let Err(error) = self.create_tray()
         {
-            eprintln!("GFlick tray failed to start: {error:#}");
+            eprintln!("gflick tray failed to start: {error:#}");
             event_loop.exit();
             return;
         }
@@ -189,7 +189,7 @@ fn main() -> Result<()> {
     let mut app = TrayApp::new(proxy, online_icon, offline_icon);
     let result = event_loop
         .run_app(&mut app)
-        .context("GFlick tray event loop failed");
+        .context("gflick tray event loop failed");
     stop_handshake.disarm()?;
     result
 }
@@ -489,7 +489,7 @@ fn build_menu(state: &TrayState, last_error: Option<&str>) -> Result<Menu> {
 
     menu.append(&PredefinedMenuItem::separator())?;
     menu.append(&MenuItem::with_id(REFRESH_MENU_ID, "Refresh", true, None))?;
-    menu.append(&MenuItem::with_id(QUIT_MENU_ID, "Quit GFlick", true, None))?;
+    menu.append(&MenuItem::with_id(QUIT_MENU_ID, "Quit gflick", true, None))?;
     Ok(menu)
 }
 
@@ -505,7 +505,7 @@ fn load_icons() -> Result<(Icon, Icon)> {
         image::ImageFormat::Ico,
     );
     let image = image::load_from_memory_with_format(icon_bytes, icon_format)
-        .context("failed to decode the embedded GFlick icon")?
+        .context("failed to decode the embedded gflick icon")?
         .into_rgba8();
     let (width, height) = image.dimensions();
     let online = image.into_raw();

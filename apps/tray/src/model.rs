@@ -91,19 +91,19 @@ impl TrayState {
 
     pub fn tooltip(&self) -> String {
         if !self.agent_connected {
-            return "GFlick — agent offline".to_owned();
+            return "gflick — agent offline".to_owned();
         }
         let Some(device) = self.devices.iter().find(|device| device.settings.is_some()) else {
             return if self.devices.is_empty() {
-                "GFlick — no mouse connected".to_owned()
+                "gflick — no mouse connected".to_owned()
             } else {
-                "GFlick — mouse unavailable".to_owned()
+                "gflick — mouse unavailable".to_owned()
             };
         };
         let status = device.status();
         truncate(
             &format!(
-                "GFlick — {}\n{} · {}",
+                "gflick — {}\n{} · {}",
                 status.name, status.battery, status.dpi
             ),
             120,

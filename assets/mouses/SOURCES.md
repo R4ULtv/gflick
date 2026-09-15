@@ -4,7 +4,7 @@ This directory contains one transparent PNG per supported model and enclosure fi
 named `<model>-<finish>.png`. `apps/settings/build.rs` prefilters the masters at build
 time; the application does not read these source files at runtime.
 
-The images are official Logitech product artwork. GFlick is not affiliated with or
+The images are official Logitech product artwork. gflick is not affiliated with or
 endorsed by Logitech. Keep any replacement artwork limited to material that the project
 has permission to redistribute, and record its source URL and license or usage basis in
 the table below when known.
