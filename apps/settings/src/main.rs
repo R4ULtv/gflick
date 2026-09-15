@@ -224,6 +224,7 @@ fn device_card(
     backdrop: u32,
     status: LinkState,
     scale: f32,
+    show_image: bool,
 ) -> Div {
     div()
         .flex()
@@ -231,7 +232,9 @@ fn device_card(
         .gap(px(10.0))
         .p(px(11.0))
         .rounded_lg()
-        .child(device_thumbnail(device, preview::THUMBNAIL_HEIGHT, scale))
+        .when(show_image, |row| {
+            row.child(device_thumbnail(device, preview::THUMBNAIL_HEIGHT, scale))
+        })
         .child(
             div()
                 .min_w_0()
@@ -276,6 +279,7 @@ struct DeviceDrag {
     status: LinkState,
     device: DeviceSummary,
     battery: Option<gflick_protocol::BatteryState>,
+    show_image: bool,
 }
 
 /// Active drag, keyed by device ID so a refresh cannot change what is moving.
@@ -302,6 +306,7 @@ impl Render for DeviceDragCard {
                 SELECTED_ROW,
                 self.drag.status,
                 window.scale_factor(),
+                self.drag.show_image,
             )
             .ml(SIDEBAR_PAD - origin_x)
             // The card is off the sidebar now, so it carries its own surface
@@ -733,7 +738,9 @@ impl SettingsView {
             .items_center()
             // The charge stands off the enclosure rather than under its wheel.
             .gap(px(7.0))
-            .child(device_thumbnail(device, RAIL_ART, scale))
+            .when(self.preferences.sidebar_device_images, |tile| {
+                tile.child(device_thumbnail(device, RAIL_ART, scale))
+            })
             .child(if device.ready {
                 let tone = battery_tone(battery, device);
                 // The figure, not the cell: a tile this narrow reads a number
@@ -937,6 +944,7 @@ impl SettingsView {
                     status,
                     device: device.clone(),
                     battery: battery.cloned(),
+                    show_image: self.preferences.sidebar_device_images,
                 });
             // Where this row would take the drop, if anywhere: above it for a
             // device coming up from below, below it for one coming down.
@@ -999,6 +1007,7 @@ impl SettingsView {
                     if selected { SELECTED_ROW } else { DEEP },
                     status,
                     scale,
+                    self.preferences.sidebar_device_images,
                 ))
         });
         self.sidebar_frame(cx)

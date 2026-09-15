@@ -87,6 +87,8 @@ running to read or change preferences.
   configuration. First-run setup enables both login items once; later launches
   preserve the user’s choice. Closing Settings does not start the tray. Build or
   install `gflick-tray` alongside the settings binary to enable it.
+- **Show mouse images** controls device photos in both the open and compact
+  sidebar. It defaults to off for an image-free device list.
 - **Confirm Apply** and **Confirm profile writes** default to on; **Confirm Discard**
   defaults to off. Profile confirmation is marked recommended. Enabled confirmations show the device and pending changes; Cancel
   leaves the draft intact. Enter and Escape cancel; use the explicit Apply or

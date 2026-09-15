@@ -11,6 +11,7 @@ type SwitchAction = Box<dyn Fn(&bool, &mut Window, &mut gpui_kit::App)>;
 
 #[derive(Clone, Copy)]
 enum Preference {
+    SidebarImages,
     Apply,
     Discard,
     Profiles,
@@ -103,6 +104,7 @@ impl SettingsView {
         }
         let mut next = self.preferences.clone();
         match key {
+            Preference::SidebarImages => next.sidebar_device_images = value,
             Preference::Apply => next.confirm_apply = value,
             Preference::Discard => next.confirm_discard = value,
             Preference::Profiles => next.confirm_profile_writes = value,
@@ -489,6 +491,21 @@ impl SettingsView {
                 .when_some(self.preference_error.clone(), |el, message| {
                     el.child(ui::notice(IconName::TriangleAlert, DANGER, message))
                 })
+                .child(
+                    ui::card()
+                        .child(ui::card_header(
+                            IconName::PanelLeft,
+                            "Appearance",
+                            "How the sidebar presents your devices.",
+                        ))
+                        .child(ui::card_rows(vec![preference(
+                            "sidebar-device-images",
+                            "Show mouse images",
+                            "Display each mouse’s image in both the open and compact sidebar.",
+                            self.preferences.sidebar_device_images,
+                            Preference::SidebarImages,
+                        )])),
+                )
                 .child(
                     ui::card()
                         .child(ui::card_header(
