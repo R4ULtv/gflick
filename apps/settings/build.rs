@@ -10,9 +10,7 @@ const DENSITIES: [f32; 2] = [1.0, 2.0];
 /// Maximum painted enclosure height; keep aligned with `preview::ART_HEIGHT`.
 const ENCLOSURE_HEIGHT: f32 = 330.0;
 
-/// The enclosure's height in a device-list row. A thumbnail is far too small to
-/// take from the large bake — an eleven-fold shrink on the GPU is mush — so it
-/// is filtered to size here like every other painting size.
+/// Device-list enclosure height, prefiltered to avoid shrinking the large bake.
 const THUMBNAIL_HEIGHT: f32 = 30.0;
 
 /// Asset stems and generated constants; all masters bake to one enclosure height.

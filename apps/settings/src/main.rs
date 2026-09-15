@@ -199,9 +199,7 @@ impl LinkState {
     }
 }
 
-/// The mouse itself, at the size the list paints it. A device is recognised by
-/// its shape and finish before its name is read, on the rail especially, where
-/// there is no name to read.
+/// The mouse enclosure at device-list size, including its identifying finish.
 fn device_thumbnail(device: &DeviceSummary, height: Pixels, scale: f32) -> Div {
     let photo =
         preview::MouseModel::for_device(device).map(|model| model.thumbnail(device.color, scale));
@@ -725,8 +723,7 @@ impl SettingsView {
     }
 
     /// One device as the rail draws it: its charge.
-    /// A rail tile: the mouse, and under it the one thing the expanded row says
-    /// in words — its charge, or why it is not reporting one.
+    /// A rail tile showing the mouse and its charge or offline state.
     fn rail_device_mark(&self, device: &DeviceSummary, status: LinkState, scale: f32) -> Div {
         let battery = self.battery_of(device);
         div()

@@ -125,10 +125,7 @@ impl MouseModel {
         density(self.photo(color).densities, scale_factor)
     }
 
-    /// The enclosure at device-list size, with its width over its height.
-    /// Textures are shared between rows, which are redrawn far too often to
-    /// build one, and the bake is filtered for this size rather than shrunk
-    /// from the page-sized one.
+    /// Returns a shared, prefiltered device-list texture and its aspect ratio.
     pub fn thumbnail(self, color: DeviceColor, scale_factor: f32) -> (Arc<RenderImage>, f32) {
         let baked = density(self.photo(color).thumbnails, scale_factor);
         let image = THUMBNAILS.with_borrow_mut(|cache| {
