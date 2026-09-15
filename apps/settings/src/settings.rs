@@ -60,6 +60,11 @@ fn spec(
         text: choices.is_empty(),
     }
 }
+/// The sensitivities people actually pick: the ladder Logitech ships its own
+/// profiles on, plus the two steps between. Only the ones the sensor reports
+/// survive.
+const DPI_PRESETS: [u16; 7] = [400, 600, 800, 1200, 1600, 2400, 3200];
+
 fn rates(key: Key, label: &'static str, value: Option<u16>, rates: &[u16]) -> Spec {
     let mut s = spec(
         key,
@@ -97,7 +102,7 @@ pub fn specs(state: &DeviceState) -> Vec<Spec> {
             values.iter().min().unwrap(),
             values.iter().max().unwrap()
         );
-        s.choices = [400, 800, 1200, 1600, 3200]
+        s.choices = DPI_PRESETS
             .into_iter()
             .filter(|v| values.contains(v))
             .map(|v| (v.to_string(), v.to_string()))

@@ -614,9 +614,10 @@ impl SettingsView {
     fn working(&self, cx: &App) -> bool {
         self.editors.values().any(|editor| editor.read(cx).busy)
     }
+    /// How many edits are waiting, counted the way the page shows them.
     fn selected_dirty(&self, cx: &App) -> usize {
         self.active_editor()
-            .map(|editor| editor.read(cx).dirty(cx).len())
+            .map(|editor| editor.read(cx).shown_edits(cx).len())
             .unwrap_or(0)
     }
     fn ensure_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {

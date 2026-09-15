@@ -232,13 +232,20 @@ impl SettingsView {
                 None => value.to_owned().into(),
             }
         };
+        // One control that moved is one row, whatever it writes: linked axes
+        // are listed once, under the name the card gives them.
+        let shown = current.shown_edits(cx);
+        let linked = current.axes_linked();
         let rows = settings::specs(&current.baseline)
             .into_iter()
             .filter_map(|spec| {
-                dirty.get(&spec.key).map(|value| {
+                shown.get(&spec.key).map(|value| {
                     let to = display(&spec, value);
                     (
-                        SharedString::new_static(spec.label),
+                        SharedString::new_static(match spec.key {
+                            settings::Key::Dpi if linked => "DPI",
+                            _ => spec.label,
+                        }),
                         display(&spec, &spec.value),
                         // Show the unit once, on the replacement value.
                         if spec.unit.is_empty() || value.is_empty() {

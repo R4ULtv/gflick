@@ -21,59 +21,47 @@ pub fn card_header(
     title: impl Into<SharedString>,
     description: &str,
 ) -> Div {
-    header_frame().child(title_block(icon, title, description))
+    header_frame().child(title_block(title_line(icon, title), description))
 }
 
-/// A card header with a control that selects what the body describes.
+/// A card header with a control that selects what the body describes. The
+/// control shares the title's line, and the description runs under both.
 pub fn card_header_aside(
     icon: impl Into<Icon>,
     title: impl Into<SharedString>,
     description: &str,
     aside: impl IntoElement,
 ) -> Div {
-    header_frame()
-        .child(title_block(icon, title, description))
-        .child(aside)
+    header_frame().child(title_block(
+        div()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_4()
+            .child(title_line(icon, title))
+            .child(aside),
+        description,
+    ))
 }
 
 fn header_frame() -> Div {
     div()
         .min_w_0()
-        .flex()
-        .items_start()
-        .justify_between()
-        .gap_4()
         .px_5()
         .py_4()
         .border_b_1()
         .border_color(rgb(LINE))
 }
 
-fn title_block(icon: impl Into<Icon>, title: impl Into<SharedString>, description: &str) -> Div {
+/// A title line, and its description beneath, as one block.
+fn title_block(title: impl IntoElement, description: &str) -> Div {
     div()
         .min_w_0()
-        .flex_1()
         .flex()
         .flex_col()
         .gap_1()
-        .child(
-            div()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .gap(px(7.0))
-                .text_size(text::TITLE)
-                .font_semibold()
-                .text_color(rgb(TEXT))
-                // Keep the glyph on the title line to avoid an unnecessary icon column.
-                .child(
-                    icon.into()
-                        .with_size(px(15.0))
-                        .flex_shrink_0()
-                        .text_color(rgb(NOTICE_ICON)),
-                )
-                .child(div().min_w_0().child(title.into())),
-        )
+        .child(title)
         .when(!description.is_empty(), |el| {
             el.child(
                 div()
@@ -82,6 +70,25 @@ fn title_block(icon: impl Into<Icon>, title: impl Into<SharedString>, descriptio
                     .child(description.to_owned()),
             )
         })
+}
+
+fn title_line(icon: impl Into<Icon>, title: impl Into<SharedString>) -> Div {
+    div()
+        .min_w_0()
+        .flex()
+        .items_center()
+        .gap(px(7.0))
+        .text_size(text::TITLE)
+        .font_semibold()
+        .text_color(rgb(TEXT))
+        // Keep the glyph on the title line to avoid an unnecessary icon column.
+        .child(
+            icon.into()
+                .with_size(px(15.0))
+                .flex_shrink_0()
+                .text_color(rgb(NOTICE_ICON)),
+        )
+        .child(div().min_w_0().child(title.into()))
 }
 
 /// A card's content area.
