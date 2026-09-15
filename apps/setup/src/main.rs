@@ -15,7 +15,7 @@ use serde::Serialize;
 #[derive(Debug, Parser)]
 #[command(
     name = "gflick-setup",
-    about = "Install and maintain GFlick for the current user"
+    about = "Install and maintain gflick for the current user"
 )]
 struct Cli {
     /// Override the extracted release bundle directory (development/testing only).
@@ -28,7 +28,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Install, update, or repair GFlick from a verified release bundle.
+    /// Install, update, or repair gflick from a verified release bundle.
     Install {
         /// Comma-separated final component set. Defaults come from bundle.json.
         #[arg(long, value_name = "LIST")]
@@ -55,7 +55,7 @@ enum Command {
     },
     /// Remove setup-owned installation files and registrations.
     Uninstall {
-        /// Also permanently remove GFlick preferences and logs.
+        /// Also permanently remove gflick preferences and logs.
         #[arg(long)]
         remove_user_data: bool,
     },
@@ -139,11 +139,11 @@ fn run(cli: Cli) -> Result<()> {
         Command::Uninstall { remove_user_data } => {
             let paths = platform.paths()?;
             let Some(state) = load_state(&paths.state_file)? else {
-                println!("GFlick is not installed; nothing to remove.");
+                println!("gflick is not installed; nothing to remove.");
                 return Ok(());
             };
             let preserved = uninstall(&platform, &paths, &state, remove_user_data)?;
-            println!("GFlick was removed for the current user.");
+            println!("gflick was removed for the current user.");
             if preserved.is_empty() {
                 if remove_user_data {
                     println!("Preferences and logs were removed.");
@@ -175,7 +175,7 @@ fn install_or_modify(
     let paths = platform.paths()?;
     let previous = load_state(&paths.state_file)?;
     if require_existing && previous.is_none() {
-        bail!("GFlick is not installed; run `gflick-setup install` first");
+        bail!("gflick is not installed; run `gflick-setup install` first");
     }
     println!(
         "Selected components: {}{}",
@@ -250,7 +250,7 @@ fn install_or_modify(
         },
     )?;
     println!(
-        "GFlick {} is installed. Repaired {} file(s); removed {} obsolete file(s).",
+        "gflick {} is installed. Repaired {} file(s); removed {} obsolete file(s).",
         report.state.product_version, report.repaired_files, report.removed_files
     );
     Ok(())
@@ -260,10 +260,10 @@ fn print_status(platform: &impl PlatformBackend, format: OutputFormat) -> Result
     let report = collect_status(platform)?;
     print_output(format, &report, || {
         if !report.installed {
-            return "GFlick is not installed.".into();
+            return "gflick is not installed.".into();
         }
         let mut text = format!(
-            "GFlick {}. Requested: {}. Observed: {}. Integrity: {}.",
+            "gflick {}. Requested: {}. Observed: {}. Integrity: {}.",
             report.installed_version.as_deref().unwrap_or("unknown"),
             component_list(&report.requested_components),
             component_list(&report.observed_components),
@@ -625,7 +625,7 @@ mod tests {
                             "payload/settings/gflick-settings",
                             InstallRoot::UserApplications,
                             if cfg!(target_os = "macos") {
-                                "Contents/MacOS/GFlick"
+                                "Contents/MacOS/gflick"
                             } else {
                                 "gflick-settings.exe"
                             },
@@ -664,8 +664,8 @@ mod tests {
         let paths = PlatformPaths {
             install_root: install.clone(),
             private_bin: install.join("bin"),
-            private_app: install.join("GFlick.app"),
-            user_applications: temp.path().join("Applications/GFlick.app"),
+            private_app: install.join("gflick.app"),
+            user_applications: temp.path().join("Applications/gflick.app"),
             user_local_bin: temp.path().join(".local/bin"),
             state_file: install.join("install-state.json"),
             tray_ready: install.join("tray.ready"),

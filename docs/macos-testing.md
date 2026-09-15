@@ -9,7 +9,9 @@ stable. No settings are changed by the commands in the first three sections.
 
 The complete checklist passed on 2026-08-02 using a Mac16,12 with an Apple M4, macOS
 15.7.7, and Rust 1.97.1. Debug and release workspace builds completed without warnings;
-all 38 tests, formatting, and strict all-target Clippy passed.
+the then-current tests, formatting, and strict all-target Clippy passed. The suite has
+grown since that dated hardware run, so use the commands below rather than the historical
+test count as the current validation gate.
 
 The original PRO X Superlight, G305, and PRO X Superlight 2 all passed discovery,
 feature audits, profile decoding with valid CRCs, agent snapshots, IPC requests, and

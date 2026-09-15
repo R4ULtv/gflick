@@ -200,6 +200,7 @@ mod tests {
             display_name: None,
             serial_number: None,
             nickname: None,
+            color: Default::default(),
             sort_order: None,
             connection: DeviceConnection::DirectUsb,
             device_index: 0,
@@ -380,6 +381,8 @@ mod tests {
                 mouse_button_filter: false,
             },
             settings: SettingsState {
+                onboard_dpi_stage: None,
+                mouse_button_mapping: None,
                 battery: None,
                 dpi: None,
                 polling_rate: PollingRateState::Unsupported,

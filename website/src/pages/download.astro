@@ -153,10 +153,12 @@ const SOURCE = [
                     </h2>
                     <p class="mt-4 leading-[1.7] text-mist-70">
                         Building from source avoids the unsigned-binary warnings
-                        entirely. It needs Rust stable - the workspace declares
-                        1.85 as its minimum - plus Visual Studio Build Tools
-                        with Desktop development with C++ and a Windows SDK, or
-                        the Xcode Command Line Tools on macOS.
+                        entirely. The core workspace targets Rust 1.85, while
+                        the GPUI Settings crate currently requires Rust 1.97.1;
+                        building the complete workspace therefore needs 1.97.1.
+                        You also need Visual Studio Build Tools with Desktop
+                        development with C++ and a Windows SDK, or the Xcode
+                        Command Line Tools on macOS.
                     </p>
                 </div>
 
@@ -199,14 +201,14 @@ const SOURCE = [
                             tray. The agent discovers devices, keeps each mouse
                             session owned by one thread, refreshes battery
                             state, persists your preferences, and serves
-                            protocol version 1 over an OS-local socket. The tray
+                            protocol version 2 over an OS-local socket. The tray
                             subscribes to those events and sleeps between
                             changes rather than polling.
                         </p>
                         <p>
-                            A graphical settings application is the intended
-                            primary interface and is not shipping yet. Until it
-                            does, control happens through the{" "}
+                            The graphical Settings client exists in the source
+                            workspace but is not included in release archives
+                            yet. Installed-release control currently happens through the{" "}
                             <code>gflick</code> CLI. Component selection, installed
                             paths, and uninstall behaviour are covered in the{
                                 " "

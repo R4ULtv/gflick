@@ -6,8 +6,8 @@ the process's per-user temporary directory. This is local IPC rather than a netw
 listener. Version 2 is not compatible with version 1: clients and agents must move
 together because the socket namespace and externally tagged event enum changed.
 
-The canonical Rust types are in `crates/gflick-protocol`. A settings application
-should depend on that crate when possible instead of duplicating the JSON schema.
+The canonical Rust types are in `crates/gflick-protocol`. Rust clients should depend
+on that crate when possible instead of duplicating the JSON schema.
 
 ## Message flow
 
@@ -23,18 +23,25 @@ value is written per line, with a 64 KiB maximum message size.
 {"message":"response","id":1,"protocol_version":2,"result":{"status":"success","data":{"type":"pong"}}}
 ```
 
-Supported read operations are `ping`, `list_devices`, and `get_device`. A device
-snapshot includes identity, readiness, advertised capabilities, battery, DPI, polling,
-configuration source, operating/surface modes, and BHOP.
+Supported read operations are `ping`, `list_devices`, `list_saved_devices`,
+`get_device`, and `get_app_preferences`. `list_devices` reports currently discovered
+interfaces; `list_saved_devices` reports every device retained in the agent's settings
+file, including disconnected devices. A complete device snapshot includes identity,
+readiness, advertised capabilities, battery, DPI, polling, configuration source,
+operating/surface modes, BHOP, the host mouse-button mapping, and the current onboard
+DPI stage when an onboard profile is active.
 
 The lifecycle operation `shutdown` acknowledges an application-wide graceful shutdown
-and then broadcasts `application_shutting_down`. The tray and any future settings UI
-must close on that event. This lets the separate components behave as one application
-without coupling UI code to the HID process.
+and then broadcasts `application_shutting_down`. The tray and Settings app close on
+that event. This lets the separate components behave as one application without
+coupling UI code to the HID process.
 
 Supported live-setting operations are:
 
-- `set_dpi`
+- `set_dpi` (same value on both axes)
+- `set_dpi_axes` (`x`, `y`; independent axes where advertised)
+- `set_mouse_button_mapping` (`mapping`; host control only, one 0–16 value per physical button)
+- `set_onboard_dpi_stage` (`index` 0–4; active onboard profile required, no flash write)
 - `set_polling_rate`
 - `set_lift_off_distance`
 - `set_surface_mode`
@@ -49,7 +56,10 @@ Successful setting commands return a fresh complete device snapshot. The agent a
 broadcasts a `settings_changed` event so other open clients can refresh immediately.
 All validation and HID++ read-back checks remain inside `gflick-core`.
 
-Two further commands manage host-side presentation only:
+Three further commands manage host-side presentation only:
+
+- `set_device_color` stores one of the model's supported enclosure finishes. The color
+  is cosmetic and is never sent as a lighting or firmware command.
 
 - `set_device_nickname` stores a user-assigned display name, or clears it when
   `nickname` is null or blank. Names are trimmed and limited to 64 characters.
@@ -58,16 +68,22 @@ Two further commands manage host-side presentation only:
   afterward. Duplicate or unknown hardware IDs are rejected, and an empty list
   clears the order.
 
-Neither sends anything to the mouse. They therefore return `acknowledged` rather
+None sends anything to the mouse. They therefore return `acknowledged` rather
 than a device snapshot, emit no `settings_changed` event, and are exempt from the
-device-ready guard so a device can be renamed while it is still initializing. After
-a successful durable save, the agent broadcasts exactly one
+device-ready guard so learned devices can be edited while offline or initializing.
+Color selection is restricted to the finishes catalogued for the detected model.
+After a successful durable save, the agent broadcasts exactly one
 `device_metadata_changed` event containing the complete ordered `DeviceSummary`
 list. Validation or persistence failures broadcast nothing.
-Because both persist under `hardware_id`, a device that has never been learned on
-this host cannot be renamed while offline. A previously learned offline device may
-be renamed when its USB identity resolves uniquely to its stored hardware identity;
-unknown or ambiguous USB matches remain unavailable for renaming.
+Because all three persist under `hardware_id`, a device that has never been learned on
+this host cannot have its metadata changed while offline. A previously learned offline
+device may be edited when its USB identity resolves uniquely to its stored hardware
+identity; unknown or ambiguous USB matches remain unavailable for metadata changes.
+
+`get_app_preferences` and `set_app_preferences` read and replace the confirmation,
+first-run, and sidebar-layout preferences shared by Settings windows. A successful set
+returns `acknowledged`. It does not emit an event, so a client that changes these values
+owns the immediate local UI update.
 
 `list_devices` returns devices in stored order: those with a `sort_order` first, in
 ascending order, followed by the rest in discovery order.
@@ -115,11 +131,11 @@ so no cached name, nickname, list position, or `hardware_id` is attached to the 
 interface. Two different nonblank serials never match through this fallback. A device that
 has never been ready on this host still has no `display_name` until it wakes once.
 
-`nickname` and `sort_order` are additive optional fields holding the host-side name
-and list position described above. They are stored by the agent, never written to the
-device, and are absent until the mouse has a `hardware_id`. Clients that show a
-nickname should keep the reported model name visible somewhere, so the underlying
-hardware stays identifiable.
+`nickname`, `color`, and `sort_order` hold the host-side presentation metadata described
+above. They are stored by the agent and never written to the device. `nickname` and
+`sort_order` are optional; `color` defaults to `black` for older stored records and
+protocol messages. Clients that show a nickname should keep the reported model name
+visible somewhere, so the underlying hardware stays identifiable.
 
 `DeviceSummary` also carries an `availability` object alongside the original `ready`
 boolean. Its states are:
@@ -136,10 +152,12 @@ events. A successful retry emits `device_ready`; physical removal emits
 
 ## Preference persistence
 
-The agent, not IPC clients, owns the per-user settings file. The first successful normal
+The agent, not IPC clients, owns the per-user settings file. The file contains an `app`
+section for shared application preferences and a `devices` section keyed by hardware
+identity. Updating either section preserves the other. The first successful normal
 discovery captures a baseline for a previously unknown `hardware_id`. After that, every
-successful setting command updates the file only after HID++ read-back succeeds. Battery
-and connection events never cause disk writes.
+successful hardware-setting command updates the file only after HID++ read-back succeeds.
+Battery and connection events never cause disk writes.
 
 Host/local preferences are reapplied when a ready mouse reconnects. For extended polling,
 only the value matching the current wired or wireless transport is written. Selecting an
@@ -154,8 +172,10 @@ preference is durable.
 
 ## Events
 
-A connection that sends `subscribe` becomes an event-only stream after receiving its
-`subscribed` response. The event types are:
+A connection that sends `subscribe` or `subscribe_settings` becomes an event-only
+stream after receiving its `subscribed` response. `subscribe_settings` requests the
+foreground five-second battery cadence for as long as that subscription remains alive;
+ordinary tray subscriptions keep the configured background cadence. The event types are:
 
 - `device_connected`: HID discovery found an interface; it may not yet be awake. When a
   unique prior USB identity is known, its stored hardware ID, nickname, sort position,

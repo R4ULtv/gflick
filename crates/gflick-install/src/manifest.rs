@@ -471,9 +471,9 @@ mod tests {
             ComponentManifest {
                 files: vec![
                     BundleFile {
-                        source: "payload/settings/GFlick".into(),
+                        source: "payload/settings/gflick".into(),
                         root: InstallRoot::UserApplications,
-                        destination: "GFlick.app/Contents/MacOS/GFlick".into(),
+                        destination: "gflick.app/Contents/MacOS/gflick".into(),
                         length: 3,
                         sha256: "11".repeat(32),
                         executable: true,
@@ -481,7 +481,7 @@ mod tests {
                     BundleFile {
                         source: "payload/settings/icon.icns".into(),
                         root: InstallRoot::UserApplications,
-                        destination: "GFlick.app/Contents/Resources/icon.icns".into(),
+                        destination: "gflick.app/Contents/Resources/icon.icns".into(),
                         length: 3,
                         sha256: "22".repeat(32),
                         executable: false,

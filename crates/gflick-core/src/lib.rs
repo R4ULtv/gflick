@@ -1,4 +1,4 @@
-//! Reusable Logitech HID++ transport and device operations for GFlick.
+//! Reusable Logitech HID++ transport and device operations for gflick.
 
 mod manager;
 mod mouse;
@@ -124,7 +124,7 @@ pub struct FeatureDescriptor {
     pub support: FeatureSupport,
 }
 
-/// Classifies HID++ features for the public GFlick API.
+/// Classifies HID++ features for the public gflick API.
 ///
 /// Feature-set flags take precedence over the numeric ID: Logitech devices can
 /// expose an otherwise familiar feature as hidden/internal firmware machinery.
@@ -2136,7 +2136,7 @@ fn parse_extended_rate_flags(flags: &[u8]) -> Result<Vec<u16>> {
 }
 
 /// HID++ features encode rates in different orders. Keep the public model
-/// deterministic for every caller, including the future settings UI.
+/// deterministic for every caller, including the Settings UI.
 fn normalize_supported_hz(mut rates: Vec<u16>) -> Vec<u16> {
     rates.sort_unstable();
     rates.dedup();

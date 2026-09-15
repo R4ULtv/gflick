@@ -1,8 +1,8 @@
-# GFlick agent
+# gflick agent
 
-`gflick-agent` is the required background service for GFlick. It discovers supported mice, owns the HID sessions, persists settings, and exposes the local IPC API used by the CLI, tray, and future settings app.
+`gflick-agent` is the required background service for gflick. It discovers supported mice, owns the HID sessions, persists settings, and exposes the local IPC API used by the CLI, tray, and Settings app.
 
-Only the agent should communicate with a device during normal GFlick use. User-facing clients should send requests over IPC instead of opening HID interfaces directly.
+Only the agent should communicate with a device during normal gflick use. User-facing clients should send requests over IPC instead of opening HID interfaces directly.
 
 ## Responsibilities
 

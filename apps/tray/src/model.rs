@@ -91,19 +91,19 @@ impl TrayState {
 
     pub fn tooltip(&self) -> String {
         if !self.agent_connected {
-            return "GFlick — agent offline".to_owned();
+            return "gflick — agent offline".to_owned();
         }
         let Some(device) = self.devices.iter().find(|device| device.settings.is_some()) else {
             return if self.devices.is_empty() {
-                "GFlick — no mouse connected".to_owned()
+                "gflick — no mouse connected".to_owned()
             } else {
-                "GFlick — mouse unavailable".to_owned()
+                "gflick — mouse unavailable".to_owned()
             };
         };
         let status = device.status();
         truncate(
             &format!(
-                "GFlick — {}\n{} · {}",
+                "gflick — {}\n{} · {}",
                 status.name, status.battery, status.dpi
             ),
             120,
@@ -647,6 +647,7 @@ mod tests {
                 display_name: Some("PRO X Superlight 2".to_owned()),
                 serial_number: None,
                 nickname: None,
+                color: Default::default(),
                 sort_order: None,
                 connection: DeviceConnection::Receiver,
                 device_index: 1,
@@ -667,6 +668,8 @@ mod tests {
                 mouse_button_filter: false,
             },
             settings: SettingsState {
+                onboard_dpi_stage: None,
+                mouse_button_mapping: None,
                 battery: Some(BatteryState {
                     percentage: 84,
                     level_code: 8,

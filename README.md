@@ -27,12 +27,12 @@ along with `SHA256SUMS`. Verify the archive before extracting it:
 
 ```powershell
 # Windows PowerShell; compare this value with the archive's SHA256SUMS entry
-(Get-FileHash .\gflick-0.2.0-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()
+(Get-FileHash .\gflick-0.3.0-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()
 ```
 
 ```sh
 # Apple Silicon macOS
-shasum -a 256 gflick-0.2.0-macos-aarch64.tar.gz
+shasum -a 256 gflick-0.3.0-macos-aarch64.tar.gz
 ```
 
 Extract the archive, then run `gflick-setup install` from the extracted directory.
@@ -66,6 +66,7 @@ three-run procedure are documented in the [benchmark README](apps/bench/README.m
 | [`apps/agent`](apps/agent/README.md) | `gflick-agent`, the device owner, monitor, settings store, and local IPC server |
 | [`apps/cli`](apps/cli/README.md) | `gflick`, the user-facing scriptable IPC CLI for a running agent |
 | [`apps/tray`](apps/tray/README.md) | `gflick-tray`, the native Windows notification-area and macOS menu-bar status client |
+| [`apps/settings`](apps/settings/README.md) | Experimental all-Rust settings client built with GPUI Kit |
 | [`apps/probe`](apps/probe/README.md) | `gflick-probe`, the developer-only direct-HID diagnostic and configuration CLI |
 | [`apps/bench`](apps/bench/README.md) | `gflick-bench`, a development utility for recording and comparing resident-process resource usage |
 | `docs` | Protocol, feature coverage, platform validation, and other project documentation |

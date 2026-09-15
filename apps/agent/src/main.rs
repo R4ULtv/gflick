@@ -21,14 +21,14 @@ use gflick_protocol as protocol;
 const MAX_NICKNAME_CHARS: usize = 64;
 
 #[derive(Debug, Parser)]
-#[command(name = "gflick-agent", about = "Low-overhead GFlick mouse agent")]
+#[command(name = "gflick-agent", about = "Low-overhead gflick mouse agent")]
 struct Cli {
     /// Seconds between USB device discovery passes.
     #[arg(long, default_value_t = 5)]
     scan_interval_seconds: u64,
 
-    /// Seconds between battery queries for each open mouse.
-    #[arg(long, default_value_t = 300)]
+    /// Seconds between battery queries, including charging status, for each open mouse.
+    #[arg(long, default_value_t = 30)]
     battery_interval_seconds: u64,
 
     /// Override the per-user JSON settings file path.
@@ -79,9 +79,7 @@ struct UnavailableDevice {
     hardware_id: Option<String>,
 }
 
-/// Stored metadata resolved for a device that may not have a live HID++
-/// session. Both fields use the persistent HID++ hardware identity, never the
-/// transient routing ID.
+/// Stored metadata keyed by persistent HID++ identity, even without a live session.
 struct ResolvedDeviceMetadata<'a> {
     hardware_id: Option<String>,
     preferences: Option<&'a store::DevicePreferences>,
@@ -94,6 +92,17 @@ impl UnavailableDevice {
             detail: self.detail.clone(),
         }
     }
+}
+
+fn reschedule_battery_check(
+    deadline: std::time::Instant,
+    previous: Duration,
+    next: Duration,
+) -> std::time::Instant {
+    deadline
+        .checked_sub(previous)
+        .unwrap_or_else(std::time::Instant::now)
+        + next
 }
 
 struct Agent {
@@ -119,6 +128,20 @@ impl Agent {
             settings: store::SettingsStore::load(settings_path)?,
             restore_preferences,
         })
+    }
+
+    fn set_battery_interval(&mut self, interval: Duration) {
+        if interval == self.battery_interval {
+            return;
+        }
+        for active in self.active.values_mut() {
+            active.battery_check_after = reschedule_battery_check(
+                active.battery_check_after,
+                self.battery_interval,
+                interval,
+            );
+        }
+        self.battery_interval = interval;
     }
 
     fn prepare_mouse(
@@ -252,9 +275,7 @@ impl Agent {
             });
         }
 
-        // Receivers remain enumerated when a wireless mouse is switched off or
-        // goes out of range. Consume buffered HID++ link events before retrying
-        // unavailable devices; this performs no request and does not wake mice.
+        // Consume buffered receiver link events before retrying, without waking mice.
         let mut link_disconnected = Vec::new();
         for (id, active) in &self.active {
             match active.mouse.poll_link_status() {
@@ -466,18 +487,46 @@ impl Agent {
         use protocol::RequestCommand;
 
         match command {
+            RequestCommand::ListSavedDevices => Ok(protocol::ResponseData::Devices {
+                devices: self.settings.saved_devices(),
+            }),
+            RequestCommand::GetAppPreferences => Ok(protocol::ResponseData::AppPreferences {
+                preferences: self.settings.app_preferences(),
+            }),
+            RequestCommand::SetAppPreferences { preferences } => {
+                self.settings.set_app_preferences(preferences)?;
+                Ok(protocol::ResponseData::Acknowledged)
+            }
             RequestCommand::Ping => Ok(protocol::ResponseData::Pong),
             RequestCommand::Shutdown => Ok(protocol::ResponseData::Acknowledged),
             RequestCommand::ListDevices => Ok(protocol::ResponseData::Devices {
                 devices: self.device_summaries(),
             }),
             RequestCommand::GetDevice { device_id } => self.device_response(&device_id),
-            RequestCommand::Subscribe => Ok(protocol::ResponseData::Subscribed),
+            RequestCommand::Subscribe | RequestCommand::SubscribeSettings => {
+                Ok(protocol::ResponseData::Subscribed)
+            }
+            RequestCommand::SetDeviceColor { device_id, color } => {
+                self.set_color(&device_id, color)
+            }
             RequestCommand::SetDeviceNickname {
                 device_id,
                 nickname,
             } => self.set_nickname(&device_id, nickname),
             RequestCommand::ReorderDevices { hardware_ids } => self.reorder(&hardware_ids),
+            RequestCommand::SetOnboardDpiStage { device_id, index } => {
+                self.mouse(&device_id)?
+                    .set_current_onboard_dpi_stage(index)?;
+                self.device_response(&device_id)
+            }
+            RequestCommand::SetDpiAxes { device_id, x, y } => {
+                self.mouse(&device_id)?.set_dpi_axes(x, y)?;
+                self.device_response(&device_id)
+            }
+            RequestCommand::SetMouseButtonMapping { device_id, mapping } => {
+                self.mouse(&device_id)?.set_mouse_button_filter(&mapping)?;
+                self.device_response(&device_id)
+            }
             RequestCommand::SetDpi { device_id, dpi } => {
                 self.mouse(&device_id)?.set_dpi(dpi)?;
                 self.device_response(&device_id)
@@ -605,6 +654,31 @@ impl Agent {
         Ok(protocol::ResponseData::Acknowledged)
     }
 
+    fn set_color(
+        &mut self,
+        device_id: &str,
+        color: protocol::DeviceColor,
+    ) -> Result<protocol::ResponseData> {
+        let device = self
+            .device_summaries()
+            .into_iter()
+            .find(|d| d.id == device_id)
+            .context("device not found")?;
+        if !device.available_colors().contains(&color) {
+            bail!("the selected color is not available for this mouse model");
+        }
+        let hardware_id = device
+            .hardware_id
+            .context("the device has no persistent HID++ hardware identity yet")?;
+        let previous = self.settings.device_mut(&hardware_id).color;
+        self.settings.device_mut(&hardware_id).color = color;
+        if let Err(error) = self.save_settings() {
+            self.settings.device_mut(&hardware_id).color = previous;
+            return Err(error);
+        }
+        Ok(protocol::ResponseData::Acknowledged)
+    }
+
     /// Assigns list positions by hardware identity. Unlisted devices keep `None`
     /// and sort after the ordered ones.
     fn reorder(&mut self, hardware_ids: &[String]) -> Result<protocol::ResponseData> {
@@ -613,11 +687,8 @@ impl Agent {
         Ok(protocol::ResponseData::Acknowledged)
     }
 
-    /// Caches the reported model name and the pre-HID++ USB identity against the
-    /// hardware identity, so both survive sleep, reconnects, and agent restarts.
-    /// The USB identity is what lets a device that is offline at startup still be
-    /// matched to this entry. Writes only on a change, since discovery runs on
-    /// every pass, and a failure here must not fail device setup.
+    /// Caches model and USB identity for matching devices across reconnects.
+    /// Writes only on change, and save failures do not fail device setup.
     fn remember_identity(
         &mut self,
         hardware_id: Option<&str>,
@@ -658,9 +729,7 @@ impl Agent {
             .hardware_id
     }
 
-    /// Resolves presentation metadata for a discovered device. A live session
-    /// identity is authoritative; the canonical USB match is only a fallback
-    /// for devices that have not yet been opened in this agent run.
+    /// Resolves metadata from a live identity, falling back to a canonical USB match.
     fn resolve_device_metadata(
         &self,
         device: &core::ManagedDevice,
@@ -796,10 +865,8 @@ fn record_unavailable(
     })
 }
 
-/// Applies the one identity-resolution policy used by device summaries,
-/// lifecycle records, and offline host-side commands. A session identity is
-/// authoritative even when it has no stored preferences; otherwise the store's
-/// canonical USB resolver must return exactly one prior device.
+/// Resolves identity consistently for summaries, lifecycle records, and offline commands.
+/// Live identities win; USB fallback requires exactly one stored match.
 fn resolve_device_metadata<'a>(
     settings: &'a store::SettingsStore,
     usb_identity: &store::UsbIdentity,
@@ -862,10 +929,12 @@ fn capture_device_preferences(
         store::HostPreferences::default()
     };
     store::DevicePreferences {
+        onboard_dpi_stage: None,
         control,
         host,
         lighting: None,
         nickname: None,
+        color: Default::default(),
         sort_order: None,
         // Both are recorded separately once the mouse reports its name.
         cached_model_name: None,
@@ -879,9 +948,18 @@ fn update_preferences(
     device: &protocol::DeviceState,
 ) {
     match command {
-        protocol::RequestCommand::SetDpi { .. } => {
+        protocol::RequestCommand::SetDpi { .. } | protocol::RequestCommand::SetDpiAxes { .. } => {
             sync_control_preference(preferences, &device.settings);
             preferences.host.dpi = device.settings.dpi.map(|dpi| dpi.current_x);
+            preferences.host.dpi_y = device.settings.dpi.and_then(|dpi| dpi.current_y);
+        }
+        protocol::RequestCommand::SetOnboardDpiStage { .. } => {
+            sync_control_preference(preferences, &device.settings);
+            preferences.onboard_dpi_stage = device.settings.onboard_dpi_stage;
+        }
+        protocol::RequestCommand::SetMouseButtonMapping { .. } => {
+            sync_control_preference(preferences, &device.settings);
+            preferences.host.button_mapping = device.settings.mouse_button_mapping.clone();
         }
         protocol::RequestCommand::SetPollingRate { .. } => {
             sync_control_preference(preferences, &device.settings);
@@ -927,12 +1005,18 @@ fn update_preferences(
         }
         protocol::RequestCommand::UseOnboardProfile { profile, .. } => {
             preferences.control = Some(store::ControlPreference::Onboard { profile: *profile });
+            preferences.onboard_dpi_stage = device.settings.onboard_dpi_stage;
         }
         protocol::RequestCommand::Ping
         | protocol::RequestCommand::Shutdown
         | protocol::RequestCommand::ListDevices
+        | protocol::RequestCommand::ListSavedDevices
+        | protocol::RequestCommand::GetAppPreferences
+        | protocol::RequestCommand::SetAppPreferences { .. }
         | protocol::RequestCommand::GetDevice { .. }
         | protocol::RequestCommand::Subscribe
+        | protocol::RequestCommand::SubscribeSettings
+        | protocol::RequestCommand::SetDeviceColor { .. }
         | protocol::RequestCommand::SetDeviceNickname { .. }
         | protocol::RequestCommand::ReorderDevices { .. } => {}
     }
@@ -973,6 +1057,8 @@ fn polling_preference_from_protocol(
 
 fn capture_protocol_host_preferences(device: &protocol::DeviceState) -> store::HostPreferences {
     store::HostPreferences {
+        dpi_y: device.settings.dpi.and_then(|dpi| dpi.current_y),
+        button_mapping: device.settings.mouse_button_mapping.clone(),
         dpi: device
             .capabilities
             .supported_dpi
@@ -1016,6 +1102,8 @@ fn capture_host_preferences(
 ) -> store::HostPreferences {
     let mode = settings.mode_status;
     store::HostPreferences {
+        dpi_y: settings.dpi.and_then(|dpi| dpi.current_y),
+        button_mapping: None,
         dpi: capabilities
             .supported_dpi
             .as_ref()
@@ -1090,6 +1178,11 @@ fn restore_device_preferences(
             ) {
                 mouse.activate_onboard_profile(profile)?;
             }
+            if let Some(stage) = preferences.onboard_dpi_stage {
+                if mouse.current_onboard_dpi_stage()? != Some(stage) {
+                    mouse.set_current_onboard_dpi_stage(stage)?;
+                }
+            }
             false
         }
         None => false,
@@ -1122,13 +1215,31 @@ fn restore_host_preferences(
     current: &core::SettingsSnapshot,
     preferences: &store::HostPreferences,
 ) -> Result<()> {
+    if let Some(mapping) = &preferences.button_mapping {
+        if !capabilities.mouse_button_filter {
+            bail!("stored button mapping is unsupported");
+        }
+        if mouse
+            .mouse_button_filter()?
+            .is_none_or(|info| &info.mapping != mapping)
+        {
+            mouse.set_mouse_button_filter(mapping)?;
+        }
+    }
     if let Some(dpi) = preferences.dpi
         && capabilities.supported_dpi.is_some()
-        && current
-            .dpi
-            .is_none_or(|state| state.current_x != dpi || state.current_y.is_some_and(|y| y != dpi))
+        && current.dpi.is_none_or(|state| {
+            state.current_x != dpi
+                || state
+                    .current_y
+                    .is_some_and(|y| y != preferences.dpi_y.unwrap_or(dpi))
+        })
     {
-        mouse.set_dpi(dpi)?;
+        if current.dpi.is_some_and(|d| d.current_y.is_some()) {
+            mouse.set_dpi_axes(dpi, preferences.dpi_y.unwrap_or(dpi))?;
+        } else {
+            mouse.set_dpi(dpi)?;
+        }
     }
 
     if let Some(polling) = preferences.polling_rate {
@@ -1212,13 +1323,21 @@ fn command_device_id(command: &protocol::RequestCommand) -> Option<&str> {
         RequestCommand::Ping
         | RequestCommand::Shutdown
         | RequestCommand::ListDevices
+        | RequestCommand::ListSavedDevices
+        | RequestCommand::GetAppPreferences
+        | RequestCommand::SetAppPreferences { .. }
         | RequestCommand::Subscribe
+        | RequestCommand::SubscribeSettings
         // Host-side metadata: deliberately exempt from the device-ready guard so a
         // device can be renamed while it is still initializing.
+        | RequestCommand::SetDeviceColor { .. }
         | RequestCommand::SetDeviceNickname { .. }
         | RequestCommand::ReorderDevices { .. } => None,
         RequestCommand::GetDevice { device_id }
         | RequestCommand::SetDpi { device_id, .. }
+        | RequestCommand::SetDpiAxes { device_id, .. }
+        | RequestCommand::SetOnboardDpiStage { device_id, .. }
+        | RequestCommand::SetMouseButtonMapping { device_id, .. }
         | RequestCommand::SetPollingRate { device_id, .. }
         | RequestCommand::SetLiftOffDistance { device_id, .. }
         | RequestCommand::SetSurfaceMode { device_id, .. }
@@ -1237,9 +1356,14 @@ fn command_changes_settings(command: &protocol::RequestCommand) -> bool {
         protocol::RequestCommand::Ping
             | protocol::RequestCommand::Shutdown
             | protocol::RequestCommand::ListDevices
+        | protocol::RequestCommand::ListSavedDevices
+        | protocol::RequestCommand::GetAppPreferences
+        | protocol::RequestCommand::SetAppPreferences { .. }
             | protocol::RequestCommand::GetDevice { .. }
             | protocol::RequestCommand::Subscribe
+        | protocol::RequestCommand::SubscribeSettings
             // These persist host-side metadata themselves and return no snapshot.
+            | protocol::RequestCommand::SetDeviceColor { .. }
             | protocol::RequestCommand::SetDeviceNickname { .. }
             | protocol::RequestCommand::ReorderDevices { .. }
     )
@@ -1248,7 +1372,8 @@ fn command_changes_settings(command: &protocol::RequestCommand) -> bool {
 fn command_changes_metadata(command: &protocol::RequestCommand) -> bool {
     matches!(
         command,
-        protocol::RequestCommand::SetDeviceNickname { .. }
+        protocol::RequestCommand::SetDeviceColor { .. }
+            | protocol::RequestCommand::SetDeviceNickname { .. }
             | protocol::RequestCommand::ReorderDevices { .. }
     )
 }
@@ -1273,9 +1398,7 @@ fn device_metadata_event(devices: Vec<protocol::DeviceSummary>) -> protocol::Age
     protocol::AgentEvent::DeviceMetadataChanged { devices }
 }
 
-/// Maps one completed command response to its one permitted publication category.
-/// The metadata builder stays lazy so failed host-side mutations never construct or
-/// publish a snapshot.
+/// Maps a completed command to one publication category, building metadata lazily.
 fn response_publication_events(
     command: &protocol::RequestCommand,
     response: &protocol::ServerMessage,
@@ -1318,6 +1441,16 @@ fn device_state(
     preferences: Option<&store::DevicePreferences>,
 ) -> Result<protocol::DeviceState> {
     let settings = settings.map_or_else(|| mouse.settings(), Ok)?;
+    let mut settings = settings_state(settings);
+    if matches!(
+        settings.configuration_source,
+        Some(protocol::ConfigurationSource::Onboard { .. })
+    ) {
+        settings.onboard_dpi_stage = mouse.current_onboard_dpi_stage()?;
+    }
+    if capabilities.mouse_button_filter {
+        settings.mouse_button_mapping = mouse.mouse_button_filter()?.map(|info| info.mapping);
+    }
     Ok(protocol::DeviceState {
         device: device_summary(
             device,
@@ -1327,7 +1460,7 @@ fn device_state(
             preferences,
         ),
         capabilities: capabilities_state(capabilities.clone()),
-        settings: settings_state(settings),
+        settings,
     })
 }
 
@@ -1372,6 +1505,7 @@ fn device_summary(
             .or_else(|| preferences.and_then(|preferences| preferences.cached_model_name.clone())),
         serial_number: device.serial_number.clone(),
         nickname: preferences.and_then(|p| p.nickname.clone()),
+        color: preferences.map(|p| p.color).unwrap_or_default(),
         sort_order: preferences.and_then(|p| p.sort_order),
         connection: match device.connection {
             core::DeviceConnection::DirectUsb => protocol::DeviceConnection::DirectUsb,
@@ -1435,6 +1569,8 @@ fn settings_state(settings: core::SettingsSnapshot) -> protocol::SettingsState {
         )
     });
     protocol::SettingsState {
+        onboard_dpi_stage: None,
+        mouse_button_mapping: None,
         battery: settings.battery.map(battery_state),
         dpi: settings.dpi.map(|dpi| protocol::DpiState {
             current_x: dpi.current_x,
@@ -1688,7 +1824,7 @@ fn main() -> Result<()> {
     )?;
 
     if cli.once {
-        println!("GFlick agent one-shot discovery; no settings will be changed.");
+        println!("gflick agent one-shot discovery; no settings will be changed.");
         agent.tick()?;
         return Ok(());
     }
@@ -1704,12 +1840,15 @@ fn main() -> Result<()> {
         install_shutdown_handler(&shutdown)?;
     }
     println!(
-        "GFlick agent started; IPC protocol v{} is ready.",
+        "gflick agent started; IPC protocol v{} is ready.",
         protocol::PROTOCOL_VERSION
     );
+    let background_battery_interval = agent.battery_interval;
     let mut next_scan = std::time::Instant::now();
     'run: while !shutdown.load(Ordering::Acquire) {
         let now = std::time::Instant::now();
+        agent.set_battery_interval(ipc.battery_interval(background_battery_interval));
+        next_scan = next_scan.min(now + agent.battery_interval);
         if now >= next_scan {
             match agent.tick() {
                 Ok(events) => {
@@ -1719,7 +1858,7 @@ fn main() -> Result<()> {
                 }
                 Err(error) => eprintln!("Discovery pass failed: {error:#}"),
             }
-            next_scan = std::time::Instant::now() + scan_interval;
+            next_scan = std::time::Instant::now() + scan_interval.min(agent.battery_interval);
         }
 
         while let Some(pending) = ipc.try_recv()? {
@@ -1739,7 +1878,7 @@ fn main() -> Result<()> {
     }
     ipc.publish(protocol::AgentEvent::ApplicationShuttingDown);
     agent.shutdown();
-    println!("GFlick agent stopped cleanly.");
+    println!("gflick agent stopped cleanly.");
     Ok(())
 }
 
@@ -1793,6 +1932,19 @@ mod tests {
     }
 
     #[test]
+    fn changing_battery_cadence_reschedules_from_the_last_check() {
+        let last = std::time::Instant::now();
+        let background = Duration::from_secs(30);
+        let foreground = Duration::from_secs(5);
+        let fast = reschedule_battery_check(last + background, background, foreground);
+        assert_eq!(fast, last + foreground);
+        assert_eq!(
+            reschedule_battery_check(fast, foreground, background),
+            last + background
+        );
+    }
+
+    #[test]
     fn rejects_removed_startup_commands() {
         assert!(Cli::try_parse_from(["gflick-agent", "startup", "install"]).is_err());
     }
@@ -1814,6 +1966,7 @@ mod tests {
             display_name: None,
             serial_number: None,
             nickname: None,
+            color: Default::default(),
             sort_order,
             connection: protocol::DeviceConnection::Receiver,
             device_index: 1,
@@ -1850,6 +2003,7 @@ mod tests {
                 display_name: Some("PRO X Superlight 2".to_owned()),
                 serial_number: None,
                 nickname: None,
+                color: Default::default(),
                 sort_order: None,
                 connection: protocol::DeviceConnection::Receiver,
                 device_index: 1,
@@ -1873,6 +2027,8 @@ mod tests {
                 mouse_button_filter: true,
             },
             settings: protocol::SettingsState {
+                onboard_dpi_stage: None,
+                mouse_button_mapping: None,
                 battery: None,
                 dpi: Some(protocol::DpiState {
                     current_x: 800,
@@ -1906,6 +2062,31 @@ mod tests {
             }),
             Some("mouse-1")
         );
+    }
+
+    #[test]
+    fn color_change_is_metadata_and_survives_hardware_setting_updates() {
+        let command = protocol::RequestCommand::SetDeviceColor {
+            device_id: "mouse-1".into(),
+            color: protocol::DeviceColor::Cyan,
+        };
+        assert_eq!(command_device_id(&command), None);
+        assert!(!command_changes_settings(&command));
+        assert!(command_changes_metadata(&command));
+        let mut preferences = store::DevicePreferences {
+            color: protocol::DeviceColor::Cyan,
+            ..Default::default()
+        };
+        let state = sample_device_state();
+        update_preferences(
+            &mut preferences,
+            &protocol::RequestCommand::SetDpi {
+                device_id: "mouse-1".into(),
+                dpi: 1600,
+            },
+            &state,
+        );
+        assert_eq!(preferences.color, protocol::DeviceColor::Cyan);
     }
 
     #[test]
@@ -2077,13 +2258,60 @@ mod tests {
     }
 
     #[test]
+    fn live_axis_mapping_and_stage_commands_persist_verified_values() {
+        let mut state = sample_device_state();
+        let mut prefs = store::DevicePreferences::default();
+        state.settings.configuration_source = Some(protocol::ConfigurationSource::Host);
+        state.settings.dpi.as_mut().unwrap().current_x = 800;
+        state.settings.dpi.as_mut().unwrap().current_y = Some(1600);
+        update_preferences(
+            &mut prefs,
+            &protocol::RequestCommand::SetDpiAxes {
+                device_id: "mouse".into(),
+                x: 800,
+                y: 1600,
+            },
+            &state,
+        );
+        assert_eq!(prefs.host.dpi, Some(800));
+        assert_eq!(prefs.host.dpi_y, Some(1600));
+        state.settings.mouse_button_mapping = Some(vec![1, 2, 3, 5, 4]);
+        update_preferences(
+            &mut prefs,
+            &protocol::RequestCommand::SetMouseButtonMapping {
+                device_id: "mouse".into(),
+                mapping: vec![1, 2, 3, 5, 4],
+            },
+            &state,
+        );
+        assert_eq!(prefs.host.button_mapping, Some(vec![1, 2, 3, 5, 4]));
+        let saved_host = prefs.host.clone();
+        state.settings.configuration_source = Some(protocol::ConfigurationSource::Onboard {
+            active_profile: Some(1),
+        });
+        state.settings.onboard_dpi_stage = Some(2);
+        update_preferences(
+            &mut prefs,
+            &protocol::RequestCommand::SetOnboardDpiStage {
+                device_id: "mouse".into(),
+                index: 2,
+            },
+            &state,
+        );
+        assert_eq!(prefs.onboard_dpi_stage, Some(2));
+        assert_eq!(prefs.host, saved_host);
+    }
+
+    #[test]
     fn selecting_onboard_profile_preserves_saved_host_preferences() {
         let mut state = sample_device_state();
         let mut preferences = store::DevicePreferences {
+            onboard_dpi_stage: None,
             control: Some(store::ControlPreference::Host),
             host: capture_protocol_host_preferences(&state),
             lighting: None,
             nickname: None,
+            color: Default::default(),
             sort_order: None,
             cached_model_name: None,
             usb_identity: None,

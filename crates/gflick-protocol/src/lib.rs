@@ -1,4 +1,4 @@
-//! Versioned JSON protocol shared by the GFlick agent and settings clients.
+//! Versioned JSON protocol shared by the gflick agent and settings clients.
 
 use serde::{Deserialize, Serialize};
 
@@ -20,10 +20,30 @@ pub enum RequestCommand {
     Ping,
     Shutdown,
     ListDevices,
+    ListSavedDevices,
+    GetAppPreferences,
+    SetAppPreferences {
+        preferences: AppPreferences,
+    },
     GetDevice {
         device_id: String,
     },
     Subscribe,
+    /// Event subscription requesting foreground battery polling for its lifetime.
+    SubscribeSettings,
+    SetOnboardDpiStage {
+        device_id: String,
+        index: u8,
+    },
+    SetDpiAxes {
+        device_id: String,
+        x: u16,
+        y: u16,
+    },
+    SetMouseButtonMapping {
+        device_id: String,
+        mapping: Vec<u8>,
+    },
     SetDpi {
         device_id: String,
         dpi: u16,
@@ -68,6 +88,11 @@ pub enum RequestCommand {
         device_id: String,
         profile: u16,
     },
+    /// Stores the enclosure color on the host. This never touches the device.
+    SetDeviceColor {
+        device_id: String,
+        color: DeviceColor,
+    },
     /// Sets or clears a host-side display name. This never touches the device.
     SetDeviceNickname {
         device_id: String,
@@ -77,11 +102,59 @@ pub enum RequestCommand {
     /// Reorders the device list. The order is host-side and keyed by hardware
     /// identity, so it survives reconnects and USB-path changes.
     ReorderDevices {
-        /// The complete desired ordered prefix of saved hardware IDs. Omitted
-        /// devices have their positions cleared and sort afterward; duplicate or
-        /// unknown IDs are rejected. An empty list clears the order.
+        /// Ordered saved IDs; omissions clear positions, and duplicates/unknowns fail.
         hardware_ids: Vec<String>,
     },
+}
+
+/// Host application preferences stored by the agent alongside mouse settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AppPreferences {
+    pub confirm_apply: bool,
+    pub confirm_discard: bool,
+    pub confirm_profile_writes: bool,
+    pub startup_defaults_applied: bool,
+    /// Whether the device list is collapsed to its rail. A window's shape is
+    /// the owner's choice, so it outlives the window.
+    pub sidebar_collapsed: bool,
+    /// Settings that are still being tried out. They are kept together because
+    /// they come and go: one that settles moves up into this struct, and one
+    /// that is dropped leaves no stale key behind in the file.
+    pub beta: BetaPreferences,
+}
+
+/// Unfinished ideas, every one of them off until an owner turns it on. Nothing
+/// here is part of the supported surface, and any of it may change or leave.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BetaPreferences {
+    /// Whether device photos are shown in both forms of the settings sidebar.
+    pub sidebar_device_images: bool,
+    /// Whether the window draws its own frame-time monitor.
+    pub fps_overlay: bool,
+}
+
+impl Default for AppPreferences {
+    fn default() -> Self {
+        Self {
+            confirm_apply: true,
+            confirm_discard: false,
+            confirm_profile_writes: true,
+            startup_defaults_applied: false,
+            sidebar_collapsed: false,
+            beta: BetaPreferences::default(),
+        }
+    }
+}
+impl AppPreferences {
+    pub fn needs_confirmation(&self, discard: bool, profile_write: bool) -> bool {
+        if discard {
+            self.confirm_discard
+        } else {
+            self.confirm_apply || (self.confirm_profile_writes && profile_write)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -193,6 +266,7 @@ pub enum ResponseResult {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ResponseData {
     Pong,
+    AppPreferences { preferences: AppPreferences },
     Subscribed,
     Acknowledged,
     Devices { devices: Vec<DeviceSummary> },
@@ -268,6 +342,90 @@ pub enum DeviceAvailability {
     },
 }
 
+/// Cosmetic enclosure color, stored on the host rather than written over HID++.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceColor {
+    #[default]
+    Black,
+    White,
+    Magenta,
+    Cyan,
+    Red,
+    Blue,
+    Lilac,
+    Mint,
+}
+impl DeviceColor {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Black => "black",
+            Self::White => "white",
+            Self::Magenta => "magenta",
+            Self::Cyan => "cyan",
+            Self::Red => "red",
+            Self::Blue => "blue",
+            Self::Lilac => "lilac",
+            Self::Mint => "mint",
+        }
+    }
+}
+
+/// Models for which gflick has verified enclosure artwork.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceModel {
+    Superlight,
+    Superlight2,
+    G305,
+}
+impl DeviceModel {
+    pub fn colors(self) -> &'static [DeviceColor] {
+        use DeviceColor::*;
+        match self {
+            Self::Superlight => &[White, Black, Red, Magenta],
+            Self::Superlight2 => &[White, Black, Cyan, Magenta],
+            Self::G305 => &[White, Black, Lilac, Blue, Mint],
+        }
+    }
+    /// Enclosure control names in reported mapping order; extras retain their number.
+    pub fn button_names(self) -> &'static [&'static str] {
+        match self {
+            Self::Superlight | Self::Superlight2 => &[
+                "Left click",
+                "Right click",
+                "Wheel click",
+                "Back",
+                "Forward",
+            ],
+            Self::G305 => &[
+                "Left click",
+                "Right click",
+                "Wheel click",
+                "Back",
+                "Forward",
+                "DPI button",
+            ],
+        }
+    }
+    /// User-specified sRGB swatch values. See assets/mouses/SOURCES.md.
+    pub fn swatch(self, color: DeviceColor) -> Option<u32> {
+        use DeviceColor::*;
+        if !self.colors().contains(&color) {
+            return None;
+        }
+        Some(match color {
+            White => 0xffffff,
+            Black => 0x000000,
+            Magenta => 0xd62975,
+            Cyan => 0x017bb9,
+            Red => 0xe63439,
+            Blue => 0x0072ce,
+            Lilac => 0xafbded,
+            Mint => 0x28b8b0,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceSummary {
     /// Session-scoped routing ID. It may include a USB-path hash and must not be used
@@ -289,6 +447,8 @@ pub struct DeviceSummary {
     /// preferences and never written to the device.
     #[serde(default)]
     pub nickname: Option<String>,
+    #[serde(default)]
+    pub color: DeviceColor,
     /// User-assigned list position. `None` sorts after every ordered device.
     #[serde(default)]
     pub sort_order: Option<u32>,
@@ -299,6 +459,37 @@ pub struct DeviceSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub availability: Option<DeviceAvailability>,
     pub ready: bool,
+}
+
+impl DeviceSummary {
+    pub fn model(&self) -> Option<DeviceModel> {
+        if self.vendor_id != 0x046d {
+            return None;
+        }
+        let name = self
+            .display_name
+            .as_ref()
+            .or(self.product_name.as_ref())?
+            .trim()
+            .to_ascii_lowercase();
+        match name.as_str() {
+            "pro x 2" | "pro x superlight 2" => Some(DeviceModel::Superlight2),
+            "pro x wireless" | "pro x superlight" => Some(DeviceModel::Superlight),
+            "g305"
+            | "g305 lightspeed"
+            | "g305 lightspeed wireless gaming mouse"
+            | "g304"
+            | "g304 lightspeed"
+            | "g304 lightspeed wireless gaming mouse" => Some(DeviceModel::G305),
+            _ => None,
+        }
+    }
+    pub fn available_colors(&self) -> &'static [DeviceColor] {
+        self.model().map(DeviceModel::colors).unwrap_or(&[])
+    }
+    pub fn supports_color_selection(&self) -> bool {
+        !self.available_colors().is_empty()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -350,6 +541,10 @@ pub struct OnboardProfileDescription {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SettingsState {
+    #[serde(default)]
+    pub onboard_dpi_stage: Option<u8>,
+    #[serde(default)]
+    pub mouse_button_mapping: Option<Vec<u8>>,
     pub battery: Option<BatteryState>,
     pub dpi: Option<DpiState>,
     pub polling_rate: PollingRateState,
@@ -401,6 +596,85 @@ pub struct BunnyHoppingState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn confirmation_defaults_preserve_explicit_saved_choices() {
+        let defaults = AppPreferences::default();
+        assert!(defaults.confirm_apply);
+        assert!(defaults.confirm_profile_writes);
+        assert!(!defaults.confirm_discard);
+        assert!(!defaults.beta.sidebar_device_images);
+        assert!(!defaults.beta.fps_overlay);
+        assert_eq!(
+            serde_json::from_str::<AppPreferences>("{}").unwrap(),
+            defaults
+        );
+        let saved: AppPreferences = serde_json::from_str(
+            r#"{"confirm_apply":false,"confirm_profile_writes":false,"confirm_discard":true}"#,
+        )
+        .unwrap();
+        assert!(!saved.confirm_apply);
+        assert!(!saved.confirm_profile_writes);
+        assert!(saved.confirm_discard);
+        // A file written before the sidebar could be collapsed opens expanded.
+        assert!(!saved.sidebar_collapsed);
+        // Files written before the beta group get every one of its switches off.
+        assert_eq!(saved.beta, BetaPreferences::default());
+        assert!(
+            serde_json::from_str::<AppPreferences>(r#"{"sidebar_collapsed":true}"#)
+                .unwrap()
+                .sidebar_collapsed
+        );
+        // One beta switch written out does not turn the others on.
+        let beta: AppPreferences =
+            serde_json::from_str(r#"{"beta":{"sidebar_device_images":true}}"#).unwrap();
+        assert!(beta.beta.sidebar_device_images);
+        assert!(!beta.beta.fps_overlay);
+    }
+
+    #[test]
+    fn catalog_keeps_model_colors_and_swatches_separate() {
+        use DeviceColor::*;
+        assert_eq!(
+            DeviceModel::G305.colors(),
+            &[White, Black, Lilac, Blue, Mint]
+        );
+        assert_eq!(
+            DeviceModel::Superlight.colors(),
+            &[White, Black, Red, Magenta]
+        );
+        assert_eq!(DeviceModel::Superlight2.swatch(Magenta), Some(0xd62975));
+        assert_eq!(DeviceModel::Superlight.swatch(Magenta), Some(0xd62975));
+        assert_eq!(DeviceModel::G305.swatch(Mint), Some(0x28b8b0));
+        assert_eq!(DeviceModel::G305.swatch(Cyan), None);
+        assert_eq!(DeviceModel::Superlight2.swatch(Red), None);
+    }
+
+    #[test]
+    fn color_wire_format_rejects_unknown_variants() {
+        for color in [
+            DeviceColor::Black,
+            DeviceColor::White,
+            DeviceColor::Magenta,
+            DeviceColor::Cyan,
+            DeviceColor::Red,
+            DeviceColor::Blue,
+            DeviceColor::Lilac,
+            DeviceColor::Mint,
+        ] {
+            let command = RequestCommand::SetDeviceColor {
+                device_id: "mouse".into(),
+                color,
+            };
+            let json = serde_json::to_string(&command).unwrap();
+            assert_eq!(
+                serde_json::from_str::<RequestCommand>(&json).unwrap(),
+                command
+            );
+            assert!(json.contains(color.as_str()));
+        }
+        assert!(serde_json::from_str::<DeviceColor>("\"orange\"").is_err());
+    }
 
     #[test]
     fn request_round_trip_is_stable() {
@@ -468,6 +742,7 @@ mod tests {
         }"#;
         let summary = serde_json::from_str::<DeviceSummary>(json).unwrap();
         assert_eq!(summary.nickname, None);
+        assert_eq!(summary.color, DeviceColor::Black);
         assert_eq!(summary.sort_order, None);
     }
 
@@ -501,6 +776,7 @@ mod tests {
             display_name: Some("First mouse".to_owned()),
             serial_number: None,
             nickname: Some("Desk".to_owned()),
+            color: Default::default(),
             sort_order: Some(0),
             connection: DeviceConnection::Receiver,
             device_index: 1,

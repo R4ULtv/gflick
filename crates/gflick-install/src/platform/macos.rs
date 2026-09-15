@@ -42,7 +42,7 @@ impl MacOsPlatform {
 impl PlatformBackend for MacOsPlatform {
     fn paths(&self) -> Result<PlatformPaths> {
         if !cfg!(target_arch = "aarch64") {
-            bail!("GFlick supports Apple Silicon macOS only; Intel macOS is unsupported");
+            bail!("gflick supports Apple Silicon macOS only; Intel macOS is unsupported");
         }
         let base =
             BaseDirs::new().context("could not determine the current macOS home directory")?;
@@ -50,8 +50,8 @@ impl PlatformBackend for MacOsPlatform {
         Ok(PlatformPaths {
             install_root: root.clone(),
             private_bin: root.join("bin"),
-            private_app: root.join("GFlick.app"),
-            user_applications: base.home_dir().join("Applications/GFlick.app"),
+            private_app: root.join("gflick.app"),
+            user_applications: base.home_dir().join("Applications/gflick.app"),
             user_local_bin: base.home_dir().join(".local/bin"),
             state_file: root.join("install-state.json"),
             tray_ready: root.join("tray.ready"),
@@ -107,7 +107,7 @@ impl PlatformBackend for MacOsPlatform {
             RegistrationKind::AgentStartup,
             AGENT_LABEL,
             &request.paths.private_bin.join("gflick-agent"),
-            &["--background-worker"],
+            &[],
             request,
             previous,
             &mut output,
@@ -459,7 +459,7 @@ mod tests {
         );
         let tray = launch_agent_contents(
             TRAY_LABEL,
-            Path::new("/Users/a&b/GFlick.app/Contents/MacOS/gflick-tray"),
+            Path::new("/Users/a&b/gflick.app/Contents/MacOS/gflick-tray"),
             &[],
             logs,
         );

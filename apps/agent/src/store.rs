@@ -50,6 +50,10 @@ pub enum LightingPreference {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostPreferences {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dpi_y: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub button_mapping: Option<Vec<u8>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dpi: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub polling_rate: Option<PollingPreference>,
@@ -66,6 +70,8 @@ pub struct HostPreferences {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DevicePreferences {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub onboard_dpi_stage: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub control: Option<ControlPreference>,
     #[serde(default)]
     pub host: HostPreferences,
@@ -74,13 +80,13 @@ pub struct DevicePreferences {
     /// Host-side display name. Never written to the device.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nickname: Option<String>,
+    /// Cosmetic enclosure color, keyed by physical hardware identity.
+    #[serde(default)]
+    pub color: protocol::DeviceColor,
     /// Host-side list position; `None` sorts after every ordered device.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<u32>,
-    /// Model name the mouse reported over HID++, cached so a sleeping or
-    /// disconnected device keeps its identity instead of falling back to the
-    /// receiver's USB product name. This is the hardware's own name and stays
-    /// distinct from `nickname`, so a renamed device can still show what it is.
+    /// HID++ model name cached for offline display, separate from the nickname.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -155,6 +161,8 @@ struct SettingsDocument {
     version: u32,
     #[serde(default)]
     devices: BTreeMap<String, DevicePreferences>,
+    #[serde(default)]
+    app: protocol::AppPreferences,
 }
 
 #[derive(Deserialize)]
@@ -167,6 +175,7 @@ impl Default for SettingsDocument {
         Self {
             version: SETTINGS_VERSION,
             devices: BTreeMap::new(),
+            app: protocol::AppPreferences::default(),
         }
     }
 }
@@ -226,6 +235,44 @@ impl SettingsStore {
         Ok(Self { path, document })
     }
 
+    pub fn app_preferences(&self) -> protocol::AppPreferences {
+        self.document.app.clone()
+    }
+    pub fn set_app_preferences(&mut self, preferences: protocol::AppPreferences) -> Result<()> {
+        let previous = std::mem::replace(&mut self.document.app, preferences);
+        if let Err(e) = self.save() {
+            self.document.app = previous;
+            return Err(e);
+        }
+        Ok(())
+    }
+    pub fn saved_devices(&self) -> Vec<protocol::DeviceSummary> {
+        self.document
+            .devices
+            .iter()
+            .map(|(id, preferences)| {
+                let usb = preferences.usb_identity.as_ref();
+                protocol::DeviceSummary {
+                    id: format!("saved:{id}"),
+                    hardware_id: Some(id.clone()),
+                    vendor_id: usb.map_or(0x046d, |u| u.vendor_id),
+                    product_id: usb.map_or(0, |u| u.product_id),
+                    device_index: usb.map_or(0, |u| u.device_index),
+                    serial_number: usb.and_then(|u| u.serial_number.clone()),
+                    product_name: None,
+                    display_name: preferences.cached_model_name.clone(),
+                    nickname: preferences.nickname.clone(),
+                    color: preferences.color,
+                    sort_order: preferences.sort_order,
+                    // This is a saved identity, never a current transport report.
+                    connection: protocol::DeviceConnection::Receiver,
+                    availability: None,
+                    ready: false,
+                }
+            })
+            .collect()
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -241,9 +288,7 @@ impl SettingsStore {
             .or_default()
     }
 
-    /// Replaces the complete user-defined device order. Every requested hardware
-    /// ID must already have stored preferences, and omitted devices become
-    /// unordered.
+    /// Replaces the device order; IDs must exist and omitted devices become unordered.
     pub fn replace_device_order(&mut self, hardware_ids: &[String]) -> Result<()> {
         let mut seen = BTreeSet::new();
         for (position, hardware_id) in hardware_ids.iter().enumerate() {
@@ -270,10 +315,8 @@ impl SettingsStore {
         Ok(())
     }
 
-    /// Resolves stored preferences for a device that has not been opened yet by
-    /// the USB identity recorded the last time it was ready. Exact identities win.
-    /// A missing serial may fall back to the same USB slot only when that match is
-    /// unique; ambiguity fails closed.
+    /// Resolves unopened devices by cached USB identity. Exact matches win;
+    /// serial-less fallback requires a unique USB slot match.
     pub fn resolve_device_by_usb_identity(
         &self,
         identity: &UsbIdentity,
@@ -401,6 +444,51 @@ fn quarantine_path(path: &Path) -> Result<PathBuf> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn app_and_mouse_settings_preserve_each_other() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(
+            &path,
+            r#"{"version":1,"app":{"confirm_apply":true,"startup_defaults_applied":true},"devices":{"mouse":{"nickname":"Desk","host":{"dpi":1600}}}}"#,
+        )
+        .unwrap();
+        let mut store = SettingsStore::load(path.clone()).unwrap();
+        assert!(store.app_preferences().confirm_apply);
+        assert!(store.app_preferences().startup_defaults_applied);
+        assert_eq!(store.device("mouse").unwrap().host.dpi, Some(1600));
+        let mut app = store.app_preferences();
+        app.confirm_discard = true;
+        store.set_app_preferences(app.clone()).unwrap();
+        store.device_mut("mouse").host.dpi = Some(800);
+        store.save().unwrap();
+        let reloaded = SettingsStore::load(path).unwrap();
+        assert_eq!(reloaded.app_preferences(), app);
+        assert_eq!(reloaded.device("mouse").unwrap().host.dpi, Some(800));
+        let saved = reloaded.saved_devices();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].nickname.as_deref(), Some("Desk"));
+        assert!(!saved[0].ready);
+    }
+    #[test]
+    fn failed_app_write_rolls_back_without_changing_devices() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let mut store = SettingsStore::load(path.clone()).unwrap();
+        store.device_mut("mouse").host.dpi = Some(800);
+        let previous = store.app_preferences();
+        fs::create_dir(&path).unwrap();
+        assert!(
+            store
+                .set_app_preferences(protocol::AppPreferences {
+                    confirm_apply: true,
+                    ..previous.clone()
+                })
+                .is_err()
+        );
+        assert_eq!(store.app_preferences(), previous);
+        assert_eq!(store.device("mouse").unwrap().host.dpi, Some(800));
+    }
     fn usb_identity(device_index: u8, serial_number: Option<&str>) -> UsbIdentity {
         UsbIdentity::new(
             0x046d,
@@ -412,8 +500,11 @@ mod tests {
 
     fn sample_preferences() -> DevicePreferences {
         DevicePreferences {
+            onboard_dpi_stage: Some(2),
             control: Some(ControlPreference::Host),
             host: HostPreferences {
+                dpi_y: Some(1600),
+                button_mapping: Some(vec![1, 2, 3, 5, 4]),
                 dpi: Some(800),
                 polling_rate: Some(PollingPreference::PerConnection {
                     wired_hz: 1000,
@@ -429,6 +520,7 @@ mod tests {
             },
             lighting: None,
             nickname: None,
+            color: Default::default(),
             sort_order: None,
             cached_model_name: None,
             usb_identity: None,
@@ -448,6 +540,35 @@ mod tests {
             loaded.device("046d:unit:1077e69f"),
             Some(&sample_preferences())
         );
+    }
+
+    #[test]
+    fn color_survives_reload_and_legacy_preferences_default_to_black() {
+        let old: DevicePreferences = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.color, protocol::DeviceColor::Black);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        for color in [
+            protocol::DeviceColor::Black,
+            protocol::DeviceColor::White,
+            protocol::DeviceColor::Magenta,
+            protocol::DeviceColor::Cyan,
+            protocol::DeviceColor::Red,
+            protocol::DeviceColor::Blue,
+            protocol::DeviceColor::Lilac,
+            protocol::DeviceColor::Mint,
+        ] {
+            let mut store = SettingsStore::load(path.clone()).unwrap();
+            store.device_mut("physical-mouse-a").color = color;
+            store.device_mut("physical-mouse-b");
+            store.save().unwrap();
+            let loaded = SettingsStore::load(path.clone()).unwrap();
+            assert_eq!(loaded.device("physical-mouse-a").unwrap().color, color);
+            assert_eq!(
+                loaded.device("physical-mouse-b").unwrap().color,
+                protocol::DeviceColor::Black
+            );
+        }
     }
 
     #[test]

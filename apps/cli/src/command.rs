@@ -206,12 +206,12 @@ fn lighting_to_protocol(value: LightingCommand) -> LightingEffect {
 
 pub fn ipc_context(error: anyhow::Error) -> anyhow::Error {
     let text = error.to_string();
-    if text.contains("could not connect to the GFlick agent") {
+    if text.contains("could not connect to the gflick agent") {
         anyhow::anyhow!(
-            "the GFlick background agent is not running; install or start it, then try again"
+            "the gflick background agent is not running; install or start it, then try again"
         )
     } else {
-        error.context("GFlick command failed")
+        error.context("gflick command failed")
     }
 }
 
@@ -255,6 +255,7 @@ mod tests {
             display_name: None,
             serial_number: None,
             nickname: None,
+            color: Default::default(),
             sort_order: None,
             connection: DeviceConnection::DirectUsb,
             device_index: 0,
@@ -280,6 +281,8 @@ mod tests {
                 mouse_button_filter: false,
             },
             settings: SettingsState {
+                onboard_dpi_stage: None,
+                mouse_button_mapping: None,
                 battery: None,
                 dpi: None,
                 polling_rate: PollingRateState::Unsupported,

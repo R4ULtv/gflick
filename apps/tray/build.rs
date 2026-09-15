@@ -5,12 +5,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed={}", icon.display());
 
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        let icon = icon.to_str().ok_or("GFlick icon path is not valid UTF-8")?;
+        let icon = icon.to_str().ok_or("gflick icon path is not valid UTF-8")?;
         let mut resource = winresource::WindowsResource::new();
         resource
             .set_icon(icon)
-            .set("ProductName", "GFlick")
-            .set("FileDescription", "GFlick tray")
+            .set("ProductName", "gflick")
+            .set("FileDescription", "gflick tray")
             .set("OriginalFilename", "gflick-tray.exe");
         resource.compile()?;
     }
