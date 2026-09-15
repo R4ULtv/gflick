@@ -115,12 +115,26 @@ pub struct AppPreferences {
     pub confirm_discard: bool,
     pub confirm_profile_writes: bool,
     pub startup_defaults_applied: bool,
-    /// Whether device photos are shown in both forms of the settings sidebar.
-    pub sidebar_device_images: bool,
     /// Whether the device list is collapsed to its rail. A window's shape is
     /// the owner's choice, so it outlives the window.
     pub sidebar_collapsed: bool,
+    /// Settings that are still being tried out. They are kept together because
+    /// they come and go: one that settles moves up into this struct, and one
+    /// that is dropped leaves no stale key behind in the file.
+    pub beta: BetaPreferences,
 }
+
+/// Unfinished ideas, every one of them off until an owner turns it on. Nothing
+/// here is part of the supported surface, and any of it may change or leave.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BetaPreferences {
+    /// Whether device photos are shown in both forms of the settings sidebar.
+    pub sidebar_device_images: bool,
+    /// Whether the window draws its own frame-time monitor.
+    pub fps_overlay: bool,
+}
+
 impl Default for AppPreferences {
     fn default() -> Self {
         Self {
@@ -128,8 +142,8 @@ impl Default for AppPreferences {
             confirm_discard: false,
             confirm_profile_writes: true,
             startup_defaults_applied: false,
-            sidebar_device_images: false,
             sidebar_collapsed: false,
+            beta: BetaPreferences::default(),
         }
     }
 }
@@ -589,7 +603,8 @@ mod tests {
         assert!(defaults.confirm_apply);
         assert!(defaults.confirm_profile_writes);
         assert!(!defaults.confirm_discard);
-        assert!(!defaults.sidebar_device_images);
+        assert!(!defaults.beta.sidebar_device_images);
+        assert!(!defaults.beta.fps_overlay);
         assert_eq!(
             serde_json::from_str::<AppPreferences>("{}").unwrap(),
             defaults
@@ -603,18 +618,18 @@ mod tests {
         assert!(saved.confirm_discard);
         // A file written before the sidebar could be collapsed opens expanded.
         assert!(!saved.sidebar_collapsed);
-        // Files written before images were optional get the image-free default.
-        assert!(!saved.sidebar_device_images);
+        // Files written before the beta group get every one of its switches off.
+        assert_eq!(saved.beta, BetaPreferences::default());
         assert!(
             serde_json::from_str::<AppPreferences>(r#"{"sidebar_collapsed":true}"#)
                 .unwrap()
                 .sidebar_collapsed
         );
-        assert!(
-            serde_json::from_str::<AppPreferences>(r#"{"sidebar_device_images":true}"#)
-                .unwrap()
-                .sidebar_device_images
-        );
+        // One beta switch written out does not turn the others on.
+        let beta: AppPreferences =
+            serde_json::from_str(r#"{"beta":{"sidebar_device_images":true}}"#).unwrap();
+        assert!(beta.beta.sidebar_device_images);
+        assert!(!beta.beta.fps_overlay);
     }
 
     #[test]

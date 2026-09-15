@@ -102,8 +102,18 @@ const SIDEBAR_KEY_HINT: &str = if cfg!(target_os = "macos") {
     "Ctrl+B"
 };
 
-/// Set to any non-empty value to open with the performance HUD already up.
-const FPS_ENV: &str = "GFLICK_FPS";
+/// The frame-time monitor's shortcut, and the way it is written in the
+/// preference that turns it on.
+const FPS_KEY: &str = if cfg!(target_os = "macos") {
+    "cmd-alt-f"
+} else {
+    "ctrl-alt-f"
+};
+pub(crate) const FPS_KEY_HINT: &str = if cfg!(target_os = "macos") {
+    "\u{2318}\u{2325}F"
+} else {
+    "Ctrl+Alt+F"
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
@@ -142,7 +152,6 @@ struct SettingsView {
     /// The drag in flight, if there is one. It is what draws the drop line, and
     /// what the release commits.
     drop_hint: Option<DropHint>,
-    show_fps: bool,
     /// The window's own focus. Keystrokes dispatch along the focus path, so
     /// without it nothing reaches the actions bound below.
     focus: gpui_kit::FocusHandle,
@@ -354,7 +363,6 @@ impl SettingsView {
             loading: false,
             error: None,
             drop_hint: None,
-            show_fps: std::env::var_os(FPS_ENV).is_some_and(|value| !value.is_empty()),
             focus: cx.focus_handle(),
         };
         view.start_live(cx);
@@ -739,7 +747,7 @@ impl SettingsView {
             .items_center()
             // The charge stands off the enclosure rather than under its wheel.
             .gap(px(7.0))
-            .when(self.preferences.sidebar_device_images, |tile| {
+            .when(self.preferences.beta.sidebar_device_images, |tile| {
                 tile.child(device_thumbnail(device, RAIL_ART, scale))
             })
             .child(if device.ready {
@@ -945,7 +953,7 @@ impl SettingsView {
                     status,
                     device: device.clone(),
                     battery: battery.cloned(),
-                    show_image: self.preferences.sidebar_device_images,
+                    show_image: self.preferences.beta.sidebar_device_images,
                 });
             // Where this row would take the drop, if anywhere: above it for a
             // device coming up from below, below it for one coming down.
@@ -1008,7 +1016,7 @@ impl SettingsView {
                     if selected { SELECTED_ROW } else { DEEP },
                     status,
                     scale,
-                    self.preferences.sidebar_device_images,
+                    self.preferences.beta.sidebar_device_images,
                 ))
         });
         self.sidebar_frame(cx)
@@ -2023,7 +2031,7 @@ impl Render for SettingsView {
             .child(self.render_sidebar(window.scale_factor(), cx))
             .child(self.render_content(content_width, cx))
             .children(Root::render_dialog_layer(window, cx))
-            .when(self.show_fps, |el| {
+            .when(self.preferences.beta.fps_overlay, |el| {
                 // Bottom right: the HUD's own top-right default sits over the
                 // header's Discard and Apply buttons.
                 el.child(fps_monitor(window, cx).anchor(Anchor::BottomRight))
@@ -2385,13 +2393,8 @@ fn main() {
         .run(|cx: &mut App| {
             gpui_kit::init(cx);
             theme::apply(cx);
-            let toggle_fps = if cfg!(target_os = "macos") {
-                "cmd-alt-f"
-            } else {
-                "ctrl-alt-f"
-            };
             cx.bind_keys([
-                KeyBinding::new(toggle_fps, ToggleFps, None),
+                KeyBinding::new(FPS_KEY, ToggleFps, None),
                 KeyBinding::new(SIDEBAR_KEY, ToggleSidebar, None),
                 // Dialogs default to Cancel: Enter must never accidentally send
                 // hardware writes or throw away a draft. Explicit buttons act.
@@ -2435,10 +2438,7 @@ fn main() {
             if let Some(view) = view_slot.borrow().clone() {
                 let fps = view.clone();
                 cx.on_action::<ToggleFps>(move |_, cx| {
-                    let _ = fps.update(cx, |view, cx| {
-                        view.show_fps = !view.show_fps;
-                        cx.notify();
-                    });
+                    let _ = fps.update(cx, |view, cx| view.toggle_fps(cx));
                 });
                 cx.on_action::<ToggleSidebar>(move |_, cx| {
                     let _ = view.update(cx, |view, cx| view.toggle_sidebar(cx));

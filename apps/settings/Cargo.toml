@@ -18,7 +18,7 @@ gflick-protocol.workspace = true
 # GPUI, GPUI Platform and GPUI Component in one released crate, so the UI no
 # longer tracks Zed's default branch. https://gpui-kit.com
 gpui-kit = "0.6.1"
-# Frame time / CPU / memory HUD for the window, toggled with `GFLICK_FPS=1`.
+# Frame time / CPU / memory HUD for the window, behind a beta preference.
 # https://gpui-kit.com/docs/fps/
 gpui-fps = "0.6.1"
 image = { workspace = true }

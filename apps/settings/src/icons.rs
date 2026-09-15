@@ -13,6 +13,7 @@ gpui_kit::assets::icon_assets!(
     [
         Ban,
         CircleDot,
+        FlaskConical,
         Gauge,
         IdCard,
         Image,

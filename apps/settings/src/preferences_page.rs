@@ -12,6 +12,7 @@ type SwitchAction = Box<dyn Fn(&bool, &mut Window, &mut gpui_kit::App)>;
 #[derive(Clone, Copy)]
 enum Preference {
     SidebarImages,
+    FpsOverlay,
     Apply,
     Discard,
     Profiles,
@@ -98,13 +99,20 @@ impl SettingsView {
         })
         .detach();
     }
+    /// Flips the frame-time monitor from its keyboard shortcut. It is a saved
+    /// preference like any other, so the shortcut writes it too.
+    pub(crate) fn toggle_fps(&mut self, cx: &mut Context<Self>) {
+        let showing = self.preferences.beta.fps_overlay;
+        self.set_preference(Preference::FpsOverlay, !showing, cx);
+    }
     fn set_preference(&mut self, key: Preference, value: bool, cx: &mut Context<Self>) {
         if !self.preferences_loaded {
             return;
         }
         let mut next = self.preferences.clone();
         match key {
-            Preference::SidebarImages => next.sidebar_device_images = value,
+            Preference::SidebarImages => next.beta.sidebar_device_images = value,
+            Preference::FpsOverlay => next.beta.fps_overlay = value,
             Preference::Apply => next.confirm_apply = value,
             Preference::Discard => next.confirm_discard = value,
             Preference::Profiles => next.confirm_profile_writes = value,
@@ -382,36 +390,39 @@ impl SettingsView {
     /// because it is one more page in the same window, not a dialog.
     pub(crate) fn render_preferences(&self, cx: &mut Context<Self>) -> impl IntoElement {
         // A switch whose state the app owns: it is saved the moment it moves.
-        let preference = |id: &'static str,
-                          label: &'static str,
-                          help: &'static str,
-                          checked: bool,
-                          key: Preference| {
-            ui::setting_row()
-                .child(ui::row_copy_badge(
-                    label,
-                    help,
-                    false,
-                    matches!(key, Preference::Profiles).then(|| ui::chip_accent("RECOMMENDED")),
-                ))
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            Switch::new(id)
-                                .checked(checked)
-                                .disabled(!self.preferences_loaded)
-                                .on_click(cx.listener(move |view, checked, _, cx| {
-                                    view.set_preference(key, *checked, cx)
-                                })),
-                        )
-                        .child(ui::switch_state(checked)),
-                )
-                .into_any_element()
-        };
+        // The monitor answers to a shortcut as well, which is worth saying
+        // where the switch is.
+        let fps_help = format!(
+            "{} {FPS_KEY_HINT} does the same.",
+            "Draw this window's own frame rate and render cost over the bottom corner."
+        );
+        let preference =
+            |id: &'static str, label: &'static str, help: &str, checked: bool, key: Preference| {
+                ui::setting_row()
+                    .child(ui::row_copy_badge(
+                        label,
+                        help,
+                        false,
+                        matches!(key, Preference::Profiles).then(|| ui::chip_accent("RECOMMENDED")),
+                    ))
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                Switch::new(id)
+                                    .checked(checked)
+                                    .disabled(!self.preferences_loaded)
+                                    .on_click(cx.listener(move |view, checked, _, cx| {
+                                        view.set_preference(key, *checked, cx)
+                                    })),
+                            )
+                            .child(ui::switch_state(checked)),
+                    )
+                    .into_any_element()
+            };
         // External-service switches stay visible but disabled until their state loads.
         let service = |id: &'static str,
                        label: &'static str,
@@ -498,21 +509,6 @@ impl SettingsView {
                 .when_some(self.preference_error.clone(), |el, message| {
                     el.child(ui::notice(IconName::TriangleAlert, DANGER, message))
                 })
-                .child(
-                    ui::card()
-                        .child(ui::card_header(
-                            IconName::PanelLeft,
-                            "Appearance",
-                            "How the sidebar presents your devices.",
-                        ))
-                        .child(ui::card_rows(vec![preference(
-                            "sidebar-device-images",
-                            "Show mouse images",
-                            "Display each mouse’s image in both the open and compact sidebar.",
-                            self.preferences.sidebar_device_images,
-                            Preference::SidebarImages,
-                        )])),
-                )
                 .child(
                     ui::card()
                         .child(ui::card_header(
@@ -643,6 +639,34 @@ impl SettingsView {
                                         ),
                                 )
                                 .into_any_element(),
+                        ])),
+                )
+                // Last, and named for what it is: nothing here is finished, and
+                // anything here may change or go.
+                .child(
+                    ui::card()
+                        .child(ui::card_header(
+                            IconName::FlaskConical,
+                            "Experimental",
+                            "Unfinished ideas, off until you turn them on. They may change or \
+                             disappear in any update.",
+                        ))
+                        .child(ui::card_rows(vec![
+                            preference(
+                                "sidebar-device-images",
+                                "Show mouse images",
+                                "Display each mouse\u{2019}s image in both the open and compact \
+                                 sidebar.",
+                                self.preferences.beta.sidebar_device_images,
+                                Preference::SidebarImages,
+                            ),
+                            preference(
+                                "fps-overlay",
+                                "Frame-time monitor",
+                                &fps_help,
+                                self.preferences.beta.fps_overlay,
+                                Preference::FpsOverlay,
+                            ),
                         ])),
                 ),
         )
