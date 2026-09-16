@@ -34,7 +34,8 @@ use gpui_kit::{
 };
 use icons::IconName;
 use theme::{
-    ACCENT, BG, DANGER, DEEP, LINE, LINE_STRONG, MUTED, MUTED_2, SUCCESS, SURFACE, SURFACE_3, TEXT,
+    ACCENT, BG, DANGER, DEEP, LINE, LINE_SOFT, LINE_STRONG, MUTED, MUTED_2, SUCCESS, SURFACE,
+    SURFACE_3, TEXT,
 };
 
 /// Width of the device list. The content pages need it to know their own.
@@ -52,6 +53,8 @@ const GRID_GAP: Pixels = px(16.0);
 const CALLOUT_WIDTH: Pixels = px(214.0);
 const CALLOUT_HEIGHT: Pixels = px(74.0);
 const CALLOUT_PAD: Pixels = px(10.0);
+/// The height of the picker that fills the lower half of a callout card.
+const CALLOUT_PICKER: Pixels = px(40.0);
 const CALLOUT_GAP: Pixels = px(12.0);
 /// The shortest leader line between a card and the artwork column. Below this
 /// the callouts crowd the mouse, and the page falls back to a list of rows.
@@ -1498,12 +1501,25 @@ impl SettingsView {
             ),
         };
 
+        // Built before the page frame: a page that carries the artwork keeps no
+        // trailing padding of its own, so the artwork centres on what a reader
+        // sees rather than on the box it is laid out in.
+        let callouts = self.callout_cards(width, cx);
         let page = div()
             .w(width)
             .max_w(page_max)
+            // A column that fills the window, so a page light enough to leave
+            // room can centre what it shows in what is left.
+            .min_h(gpui_kit::relative(1.0))
+            .flex()
+            .flex_col()
             .px(px(28.0))
             .pt(px(32.0))
-            .pb(px(56.0))
+            .pb(if callouts.is_some() {
+                px(0.0)
+            } else {
+                px(56.0)
+            })
             .child(
                 div()
                     .flex()
@@ -1552,7 +1568,7 @@ impl SettingsView {
                         .child(format!("Showing the last successful read. {error}")),
                 )
             })
-            .child(match self.callout_cards(width, cx) {
+            .child(match callouts {
                 Some(cards) => self
                     .render_button_stage(state, cards, inner)
                     .into_any_element(),
@@ -1591,7 +1607,7 @@ impl SettingsView {
         let editor = self.active_editor()?;
         // The menu opens the width of the picker, which fills its card.
         Some(editor.update(cx, |editor, cx| {
-            editor.callouts(CALLOUT_WIDTH - CALLOUT_PAD * 2.0, cx)
+            editor.callouts((CALLOUT_WIDTH - px(2.0), CALLOUT_PICKER), cx)
         }))
     }
 
@@ -1676,13 +1692,16 @@ impl SettingsView {
 
         div()
             .w_full()
+            // The artwork is the page: it takes what the heading leaves and
+            // stands in the middle of it, rather than following the heading the
+            // way a column of cards would.
+            .flex_1()
             .flex()
             .flex_col()
             .items_center()
-            .gap_4()
-            // The artwork is the page, so it stands clear of the heading rather
-            // than following it the way a column of cards would.
-            .pt(px(28.0))
+            .justify_center()
+            .gap(px(22.0))
+            .py(px(24.0))
             .child(
                 div()
                     .relative()
@@ -1699,7 +1718,8 @@ impl SettingsView {
                     .children(layers),
             )
             .child(ui::caption(model.label()))
-            .child(div().max_w(px(640.0)).child(ui::notice(
+            // The note is about the page, not about the mouse named above it.
+            .child(div().mt(px(10.0)).max_w(px(640.0)).child(ui::notice(
                 IconName::Info,
                 MUTED_2,
                 "Assignments are sent to the mouse when you apply. They need Host control \
@@ -2107,17 +2127,17 @@ fn render_callout(card: editor::Callout) -> Div {
         .h(CALLOUT_HEIGHT)
         .flex()
         .flex_col()
-        .gap(px(6.0))
-        .p(CALLOUT_PAD)
         .rounded_xl()
         .border_1()
         .border_color(rgb(LINE))
         .bg(rgb(SURFACE))
         .child(
             div()
+                .flex_1()
                 .flex()
                 .items_center()
                 .gap(px(6.0))
+                .px(CALLOUT_PAD)
                 .child(
                     div()
                         .min_w_0()
@@ -2138,7 +2158,13 @@ fn render_callout(card: editor::Callout) -> Div {
                     )
                 }),
         )
-        .child(card.picker)
+        .child(
+            div()
+                .w_full()
+                .border_t_1()
+                .border_color(rgb(LINE_SOFT))
+                .child(card.picker),
+        )
 }
 
 /// Charge below this is worth pointing at rather than just reporting.

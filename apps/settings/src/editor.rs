@@ -11,7 +11,7 @@ use crate::{
 use gflick_protocol::{DeviceConnection, DeviceState};
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{
-    ActiveTheme, Disableable, Icon, Side, Sizable as _,
+    ActiveTheme, Disableable, Icon, Sizable as _,
     button::{Button, ButtonCustomVariant, ButtonVariants},
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenu, PopupMenuItem},
@@ -47,10 +47,15 @@ pub struct Callout {
     pub picker: gpui_kit::AnyElement,
 }
 
-/// How tall a mapping menu runs before it scrolls, and the air above and below
-/// each of its rows. Kit's own rows are tight enough to read as one block.
-const MENU_HEIGHT: Pixels = px(322.0);
+/// How tall a mapping menu runs before it scrolls, the air above and below each
+/// of its rows, and the padding Kit sets inside one. Kit's own rows are tight
+/// enough to read as one block.
+const MENU_HEIGHT: Pixels = px(252.0);
 const MENU_ROW_PAD: Pixels = px(3.0);
+const MENU_ROW_INSET: Pixels = px(8.0);
+
+/// The inside of a callout card's corner: the card's own radius less its border.
+const CARD_RADIUS: Pixels = px(11.0);
 
 /// What a mapping value sends to this computer.
 fn action_label(spec: &Spec, value: &str) -> SharedString {
@@ -787,7 +792,7 @@ impl Editor {
         &self,
         spec: &Spec,
         value: &str,
-        width: Option<Pixels>,
+        card: Option<(Pixels, Pixels)>,
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
         let key = spec.key;
@@ -795,12 +800,34 @@ impl Editor {
         let selected = value.to_owned();
         let label = action_label(spec, value);
         let editor = cx.entity().downgrade();
+        let width = card.map(|(width, _)| width);
+        // On a callout the picker is the card's lower half rather than a
+        // control sitting inside it, so it drops its own outline and fills the
+        // width it is given.
+        let flush = card.map(|_| {
+            ButtonCustomVariant::new(cx)
+                .color(cx.theme().transparent)
+                .foreground(rgb(TEXT).into())
+                .hover(rgb(SURFACE_2).into())
+                .active(rgb(SURFACE_3).into())
+                .shadow(false)
+        });
         Button::new(SharedString::from(format!("{key:?}-mapping")))
-            .outline()
+            .map(|button| match flush {
+                // Square where it meets the label above, and the card's own
+                // radius where it meets the card's bottom corners: a rectangular
+                // clip cannot round a fill, so the fill is rounded itself.
+                Some(style) => button
+                    .custom(style)
+                    .rounded(px(0.0))
+                    .rounded_bl(CARD_RADIUS)
+                    .rounded_br(CARD_RADIUS),
+                None => button.outline(),
+            })
             .dropdown_caret(true)
             .disabled(self.busy)
             .accessibility_label(format!("{}: {label}", spec.label))
-            .when_some(width, |button, width| button.w(width).h(px(34.0)))
+            .when_some(card, |button, (width, height)| button.w(width).h(height))
             .child(
                 div()
                     .min_w_0()
@@ -825,23 +852,51 @@ impl Editor {
                     .iter()
                     // Put checks opposite action icons and constrain the menu to its control.
                     .fold(
-                        menu.check_side(Side::Right)
-                            .max_h(MENU_HEIGHT)
+                        menu.max_h(MENU_HEIGHT)
                             .when_some(width, |menu, width| menu.min_w(width)),
                         |menu, (value, label)| {
                             let editor = editor.clone();
                             let action = value.clone();
                             let label = SharedString::from(label.clone());
+                            let icon = action_icon(value);
+                            let chosen = value == &selected;
                             // Separate named actions from raw button numbers.
                             menu.when(value == "6", PopupMenu::separator).item(
-                                // Element rows allow more padding than Kit's fixed plain rows.
+                                // Element rows allow more padding than Kit's
+                                // fixed plain rows, and let the row that is in
+                                // force carry the accent rather than only a check.
                                 PopupMenuItem::element(move |_, _| {
-                                    // Flexible, so the check stays on the far
-                                    // edge rather than trailing the label.
-                                    div().flex_1().py(MENU_ROW_PAD).child(label.clone())
+                                    div()
+                                        .flex_1()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(7.0))
+                                        .py(MENU_ROW_PAD)
+                                        // The row in force wears the fill a
+                                        // hovered row wears, bled back over the
+                                        // padding Kit sets so it spans the row.
+                                        .when(chosen, |el| {
+                                            el.mx(-MENU_ROW_INSET)
+                                                .px(MENU_ROW_INSET)
+                                                .rounded(px(8.0))
+                                                .bg(rgb(SURFACE_2))
+                                        })
+                                        .child(
+                                            Icon::new(icon)
+                                                .with_size(px(14.0))
+                                                .text_color(rgb(MUTED_2)),
+                                        )
+                                        .child(div().flex_1().child(label.clone()))
+                                        // The check rides inside the fill, so
+                                        // the row reads as one band either way.
+                                        .when(chosen, |el| {
+                                            el.child(
+                                                Icon::new(IconName::Check)
+                                                    .with_size(px(13.0))
+                                                    .text_color(rgb(MUTED)),
+                                            )
+                                        })
                                 })
-                                .icon(action_icon(value))
-                                .checked(value == &selected)
                                 .on_click(move |_, window, cx| {
                                     let _ = editor.update(cx, |editor, cx| {
                                         editor.set(key, action.clone(), window, cx)
@@ -865,7 +920,7 @@ impl Editor {
 
     /// The buttons page's callouts: the artwork belongs to the page, the draft
     /// behind each picker belongs here.
-    pub fn callouts(&self, picker: Pixels, cx: &mut Context<Self>) -> Vec<Callout> {
+    pub fn callouts(&self, picker: (Pixels, Pixels), cx: &mut Context<Self>) -> Vec<Callout> {
         let mut callouts = Vec::new();
         for field in &self.fields {
             if !matches!(field.spec.key, Key::Button(_)) {
