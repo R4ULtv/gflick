@@ -1392,7 +1392,10 @@ impl SettingsView {
                                     .when(writable, |el| el.child(ui::count_badge(dirty))),
                             )
                             .loading(busy)
-                            .disabled(!writable),
+                            .disabled(!writable)
+                            .on_click(cx.listener(move |view, _, window, cx| {
+                                view.confirm_device_action(editor.clone(), false, window, cx)
+                            })),
                     )
                 },
             )
