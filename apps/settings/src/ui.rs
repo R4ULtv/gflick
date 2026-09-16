@@ -3,7 +3,7 @@ use crate::icons::IconName;
 use crate::theme::*;
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{Icon, Sizable as _};
-use gpui_kit::{AnyElement, Div, Pixels, SharedString, div, prelude::*, px, rgb};
+use gpui_kit::{AnyElement, Div, Pixels, SharedString, div, prelude::*, px, rgb, rgba};
 
 /// A panel for settings groups and info tables; it stays unclipped for focus rings.
 pub fn card() -> Div {
@@ -182,23 +182,24 @@ pub fn change_list(rows: Vec<(SharedString, SharedString, SharedString)>) -> Div
         )
 }
 
-/// A white count badge inside a filled accent button.
+/// A count badge inside a filled accent button. It is cut out of the fill
+/// rather than laid on top of it, so the button stays one object.
 pub fn count_badge(count: usize) -> Div {
     div()
         .flex_shrink_0()
-        // Sized rather than padded, so it reads as one square mark next to the
-        // label instead of a pill that grew out of its digit.
-        .h(px(17.0))
-        .min_w(px(18.0))
-        .px(px(4.0))
-        .rounded(px(5.0))
-        .bg(rgb(0xffffff))
+        // Sized rather than padded, so it reads as one mark next to the label
+        // instead of a pill that grew out of its digit.
+        .h(px(18.0))
+        .min_w(px(19.0))
+        .px(px(5.0))
+        .rounded(px(6.0))
+        .bg(rgba(0xffffff2e))
         .flex()
         .items_center()
         .justify_center()
         .text_size(text::MICRO)
         .font_semibold()
-        .text_color(rgb(ACCENT))
+        .text_color(rgb(0xffffff))
         .child(count.to_string())
 }
 

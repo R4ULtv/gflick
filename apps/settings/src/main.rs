@@ -38,6 +38,9 @@ use theme::{
     SURFACE_3, TEXT,
 };
 
+/// The height of the two buttons that write to, or roll back, the mouse.
+const ACTION_HEIGHT: Pixels = px(34.0);
+
 /// Width of the device list. The content pages need it to know their own.
 const SIDEBAR_WIDTH: Pixels = px(272.0);
 /// The widest a page runs before it is centred, in one column of cards and in
@@ -1323,13 +1326,17 @@ impl SettingsView {
     }
 
     /// Pending-change actions; Apply carries the count and current write state.
+    /// They are the two buttons that reach the hardware, so they are sized for
+    /// it: the quiet one gives up its outline, and the accent appears only
+    /// while there is something to write.
     fn render_actions(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let busy = self.working(cx);
         let dirty = self.selected_dirty(cx);
+        let writable = !busy && dirty > 0 && !self.loading && self.selected_state().is_some();
         div()
             .flex()
             .items_center()
-            .gap_2()
+            .gap(px(6.0))
             .flex_shrink_0()
             .when_some(
                 self.active_editor().filter(|_| {
@@ -1341,11 +1348,16 @@ impl SettingsView {
                     let discard = editor.clone();
                     bar.child(
                         Button::new("discard")
-                            .outline()
-                            .compact()
+                            // No outline: two boxed buttons side by side read as
+                            // a pair of equals, and these two are not.
+                            .ghost()
+                            .h(ACTION_HEIGHT)
+                            .px(px(12.0))
+                            .rounded(px(9.0))
                             // Undo restores the mouse's current values; it does not dismiss them.
                             .icon(IconName::Undo2)
                             .accessibility_label("Discard")
+                            .tooltip("Put the mouse's own values back")
                             .child(ui::button_label("Discard", theme::text::BODY))
                             .disabled(busy || dirty == 0)
                             .on_click(cx.listener(move |view, _, window, cx| {
@@ -1354,34 +1366,34 @@ impl SettingsView {
                     )
                     .child(
                         Button::new("apply")
-                            .primary()
-                            .compact()
+                            // Grey until there is something to write, so the
+                            // accent itself says the mouse is about to change.
+                            // A write in flight keeps it, since it is acting.
+                            .map(|button| match writable || busy {
+                                true => button.primary(),
+                                false => button.secondary(),
+                            })
+                            .h(ACTION_HEIGHT)
+                            .px(px(14.0))
+                            .rounded(px(9.0))
                             .icon(IconName::Check)
                             .accessibility_label("Apply")
+                            .tooltip("Write the pending changes to the mouse")
                             .child(
                                 div()
                                     .flex()
                                     .items_center()
-                                    .gap(px(7.0))
+                                    .gap(px(8.0))
                                     // The size goes on the label itself: Kit sets
                                     // its own on the element wrapping this one.
                                     .child(ui::button_label(
-                                        if busy { "Applying…" } else { "Apply" },
+                                        if busy { "Applying\u{2026}" } else { "Apply" },
                                         theme::text::BODY,
                                     ))
-                                    .when(!busy && dirty > 0, |el| {
-                                        el.child(ui::count_badge(dirty))
-                                    }),
+                                    .when(writable, |el| el.child(ui::count_badge(dirty))),
                             )
                             .loading(busy)
-                            .disabled(
-                                busy || dirty == 0
-                                    || self.loading
-                                    || self.selected_state().is_none(),
-                            )
-                            .on_click(cx.listener(move |view, _, window, cx| {
-                                view.confirm_device_action(editor.clone(), false, window, cx)
-                            })),
+                            .disabled(!writable),
                     )
                 },
             )
