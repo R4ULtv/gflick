@@ -193,14 +193,13 @@ impl LinkState {
     fn label(self, device: &DeviceSummary) -> &'static str {
         match self {
             Self::Ready => connection_label(device),
-            Self::Offline if device.connection == DeviceConnection::Receiver => {
-                "Mouse offline · Receiver connected"
-            }
-            Self::Offline => "USB connected · not responding",
+            // A link gflick cannot read is named in one place, so the window,
+            // the rail and the menu bar all say it the same way.
+            Self::Offline | Self::Checking | Self::Error => device
+                .unavailable_label()
+                .unwrap_or("Connection unverified"),
             Self::Disconnected => "USB disconnected",
-            Self::Checking => "Checking connection…",
             Self::Unknown => "Connection unverified",
-            Self::Error => "USB connected · read error",
         }
     }
     fn icon(self, device: &DeviceSummary) -> IconName {
@@ -1904,7 +1903,15 @@ impl SettingsView {
                 }) if device.connection == DeviceConnection::Receiver => {
                     "Receiver connected, mouse offline. The mouse may be switched off, asleep, or out of range."
                 }
-                Some(DeviceAvailability::Unavailable { detail, .. }) => detail.as_str(),
+                Some(DeviceAvailability::Unavailable {
+                    reason: gflick_protocol::DeviceUnavailableReason::NotResponding,
+                    ..
+                }) => "Connected, but the mouse is not answering. Unplug it and plug it back in.",
+                // What the agent could not do is for its log; an owner is told
+                // what to try instead.
+                Some(DeviceAvailability::Unavailable { .. }) => {
+                    "The agent could not read this mouse. Reconnect it, or restart the agent from                      App preferences."
+                }
                 _ => "The device is not ready yet.",
             }
         };

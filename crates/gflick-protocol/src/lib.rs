@@ -462,6 +462,29 @@ pub struct DeviceSummary {
 }
 
 impl DeviceSummary {
+    /// Why this mouse cannot be read right now, in the words gflick uses
+    /// wherever it says so, or `None` while it can be read. The `detail` an
+    /// agent attaches to an unavailable state is a diagnostic for logs; it is
+    /// not a status line, and it is not shown to an owner.
+    pub fn unavailable_label(&self) -> Option<&'static str> {
+        let offline = match self.connection {
+            DeviceConnection::Receiver => "Mouse offline · Receiver connected",
+            DeviceConnection::DirectUsb => "USB connected · not responding",
+        };
+        match self.availability.as_ref() {
+            Some(DeviceAvailability::Initializing) => Some("Checking connection…"),
+            Some(DeviceAvailability::Unavailable {
+                reason: DeviceUnavailableReason::CommunicationError,
+                ..
+            }) => Some("USB connected · read error"),
+            Some(DeviceAvailability::Unavailable { .. }) => Some(offline),
+            // A mouse an older agent reports without a lifecycle state is read
+            // from `ready` alone.
+            _ if self.ready => None,
+            _ => Some(offline),
+        }
+    }
+
     pub fn model(&self) -> Option<DeviceModel> {
         if self.vendor_id != 0x046d {
             return None;
@@ -763,6 +786,66 @@ mod tests {
             message
         );
         assert!(json.contains("\"message\":\"event\""));
+    }
+
+    /// Every window gflick opens says the same thing about a link it cannot
+    /// read, and none of them repeats the agent's diagnostic at an owner.
+    #[test]
+    fn an_unreadable_link_reads_the_same_in_every_window() {
+        let mut device = DeviceSummary {
+            id: "first".to_owned(),
+            hardware_id: None,
+            vendor_id: 0x046d,
+            product_id: 0xc54d,
+            product_name: None,
+            display_name: Some("PRO X 2".to_owned()),
+            serial_number: None,
+            nickname: None,
+            color: Default::default(),
+            sort_order: None,
+            connection: DeviceConnection::Receiver,
+            device_index: 1,
+            availability: Some(DeviceAvailability::Ready),
+            ready: true,
+        };
+        assert_eq!(device.unavailable_label(), None);
+
+        device.ready = false;
+        device.availability = Some(DeviceAvailability::Unavailable {
+            reason: DeviceUnavailableReason::NotResponding,
+            detail: "timed out waiting for HID++ reply to feature index 0x00".to_owned(),
+        });
+        assert_eq!(
+            device.unavailable_label(),
+            Some("Mouse offline · Receiver connected")
+        );
+
+        device.connection = DeviceConnection::DirectUsb;
+        assert_eq!(
+            device.unavailable_label(),
+            Some("USB connected · not responding")
+        );
+
+        device.availability = Some(DeviceAvailability::Unavailable {
+            reason: DeviceUnavailableReason::CommunicationError,
+            detail: "short read".to_owned(),
+        });
+        assert_eq!(
+            device.unavailable_label(),
+            Some("USB connected · read error")
+        );
+
+        device.availability = Some(DeviceAvailability::Initializing);
+        assert_eq!(device.unavailable_label(), Some("Checking connection…"));
+
+        // A v1 agent reports no lifecycle state at all.
+        device.availability = None;
+        assert_eq!(
+            device.unavailable_label(),
+            Some("USB connected · not responding")
+        );
+        device.ready = true;
+        assert_eq!(device.unavailable_label(), None);
     }
 
     #[test]

@@ -62,11 +62,23 @@ impl TrayState {
             }
             AgentEvent::DeviceMetadataChanged { devices } => self.merge_metadata(devices),
             AgentEvent::DeviceUnavailable {
-                device_id, reason, ..
+                device_id,
+                reason,
+                reason_code,
             } => {
                 if let Some(device) = self.device_mut(&device_id) {
                     device.settings = None;
-                    device.unavailable_reason = Some(reason);
+                    // Record the state on the summary as well, so the menu says
+                    // the same thing whether it came from an event or a
+                    // snapshot — and says it in gflick's words, not the agent's.
+                    device.summary.ready = false;
+                    device.summary.availability =
+                        Some(gflick_protocol::DeviceAvailability::Unavailable {
+                            reason: reason_code
+                                .unwrap_or(gflick_protocol::DeviceUnavailableReason::NotResponding),
+                            detail: reason,
+                        });
+                    device.unavailable_reason = availability_reason(&device.summary);
                 }
             }
             AgentEvent::DeviceDisconnected { device_id } => {
@@ -245,14 +257,10 @@ fn dpi_label(dpi: Option<&DpiState>) -> String {
     )
 }
 
+/// What the menu says about a link it cannot read. The agent's own detail is a
+/// diagnostic for the log, so the shared label speaks for it here.
 fn availability_reason(summary: &DeviceSummary) -> Option<String> {
-    match summary.availability.as_ref() {
-        Some(gflick_protocol::DeviceAvailability::Unavailable { detail, .. }) => {
-            Some(detail.clone())
-        }
-        _ if summary.ready => None,
-        _ => Some("Connecting…".to_owned()),
-    }
+    summary.unavailable_label().map(str::to_owned)
 }
 
 fn truncate(value: &str, maximum_characters: usize) -> String {
@@ -562,7 +570,7 @@ mod tests {
         assert_eq!(tray.statuses()[0].name, "Desk mouse");
         assert_eq!(
             tray.statuses()[0].status.as_deref(),
-            Some("mouse is asleep")
+            Some("Mouse offline · Receiver connected")
         );
     }
 
