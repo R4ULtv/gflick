@@ -15,6 +15,8 @@ gpui_kit::assets::icon_assets!(
         CircleDot,
         FlaskConical,
         Gauge,
+        Github,
+        Globe,
         IdCard,
         Image,
         ListChecks,

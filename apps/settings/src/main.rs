@@ -93,6 +93,8 @@ const SELECTED_ROW: u32 = 0x30343f;
 /// Logical edge of the sidebar logo. Keep in step with its `size_8()` below.
 const LOGO_SIZE: f32 = 32.0;
 const LOGO_SVG: &[u8] = include_bytes!("../../../website/public/favicon.svg");
+const WEBSITE_URL: &str = "https://www.gflick.app";
+const GITHUB_URL: &str = "https://github.com/R4ULtv/gflick";
 
 actions!(
     gflick_settings,
@@ -793,6 +795,16 @@ impl SettingsView {
         }
     }
 
+    fn agent_status_tone(&self) -> u32 {
+        if self.error.is_some() {
+            DANGER
+        } else if self.loading {
+            MUTED_2
+        } else {
+            SUCCESS
+        }
+    }
+
     fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
         self.sidebar_collapsed = !self.sidebar_collapsed;
         // A rail has no rows to land between, so a drag cannot survive the
@@ -985,10 +997,17 @@ impl SettingsView {
                     .flex_shrink_0()
                     .w_full()
                     .h(SIDEBAR_HEADER)
+                    .relative()
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(self.sidebar_toggle(cx)),
+                    .child(self.sidebar_toggle(cx))
+                    .child(
+                        ui::dot(self.agent_status_tone())
+                            .absolute()
+                            .top(px(12.0))
+                            .right_0(),
+                    ),
             )
             .child(
                 div()
@@ -1036,16 +1055,7 @@ impl SettingsView {
                                 self.loading || self.working(cx) || self.selected_dirty(cx) > 0,
                             )
                             .on_click(cx.listener(|view, _, _, cx| view.refresh(cx))),
-                    )
-                    // The agent's state, with nothing to spell it out: the
-                    // expanded footer is where the words are.
-                    .child(ui::dot(if self.error.is_some() {
-                        DANGER
-                    } else if self.loading {
-                        MUTED_2
-                    } else {
-                        SUCCESS
-                    })),
+                    ),
             )
     }
 
@@ -1165,6 +1175,7 @@ impl SettingsView {
                             .text_color(rgb(MUTED_2))
                             .child(concat!("v", env!("CARGO_PKG_VERSION"))),
                     )
+                    .child(ui::dot(self.agent_status_tone()))
                     .child(div().flex_1())
                     .child(self.sidebar_toggle(cx)),
             )
@@ -1243,51 +1254,36 @@ impl SettingsView {
                     .on_click(cx.listener(|view, _, _, cx| view.open_preferences(cx))),
             )
             .child(
-                // Re-reading the mouse belongs to the agent, not to the page,
-                // so the control sits with the connection it acts on.
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(10.0))
-                    .mx(px(6.0))
-                    .mt_3()
-                    .pt_3()
+                    .gap(px(2.0))
+                    .mx(px(2.0))
+                    .mt_2()
+                    .pt_2()
                     .border_t_1()
                     .border_color(rgb(0x333741))
-                    .child(ui::dot(if self.error.is_some() {
-                        DANGER
-                    } else if self.loading {
-                        MUTED_2
-                    } else {
-                        SUCCESS
-                    }))
                     .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_size(theme::text::TINY)
-                                    .font_semibold()
-                                    .text_color(rgb(TEXT))
-                                    .child("GFlick Agent"),
-                            )
-                            .child(
-                                div()
-                                    .text_size(theme::text::MICRO)
-                                    .text_color(rgb(MUTED_2))
-                                    .child(if self.error.is_some() {
-                                        "Unable to connect"
-                                    } else if self.loading {
-                                        "Reading devices…"
-                                    } else {
-                                        "Connected locally"
-                                    }),
-                            ),
+                        Button::new("website")
+                            .icon(IconName::Globe)
+                            .ghost()
+                            .small()
+                            .compact()
+                            .accessibility_label("Open the GFlick website")
+                            .child(ui::button_label("Website", theme::text::TINY))
+                            .on_click(|_, _, cx| cx.open_url(WEBSITE_URL)),
                     )
+                    .child(
+                        Button::new("github")
+                            .icon(IconName::Github)
+                            .ghost()
+                            .small()
+                            .compact()
+                            .accessibility_label("Open the GFlick GitHub repository")
+                            .child(ui::button_label("GitHub", theme::text::TINY))
+                            .on_click(|_, _, cx| cx.open_url(GITHUB_URL)),
+                    )
+                    .child(div().flex_1())
                     .child(
                         Button::new("refresh")
                             .icon(IconName::RotateCw)
