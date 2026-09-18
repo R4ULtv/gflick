@@ -118,6 +118,10 @@ pub struct AppPreferences {
     /// Whether the device list is collapsed to its rail. A window's shape is
     /// the owner's choice, so it outlives the window.
     pub sidebar_collapsed: bool,
+    /// Fixed keyboard shortcuts can be turned off independently. Their keys
+    /// are intentionally not configurable, so the same action is predictable
+    /// on every installation.
+    pub shortcuts: ShortcutPreferences,
     /// Settings that are still being tried out. They are kept together because
     /// they come and go: one that settles moves up into this struct, and one
     /// that is dropped leaves no stale key behind in the file.
@@ -135,6 +139,27 @@ pub struct BetaPreferences {
     pub fps_overlay: bool,
 }
 
+/// Whether each family of fixed settings-window shortcuts is active.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShortcutPreferences {
+    pub apply: bool,
+    pub discard: bool,
+    pub switch_page: bool,
+    pub switch_mouse: bool,
+}
+
+impl Default for ShortcutPreferences {
+    fn default() -> Self {
+        Self {
+            apply: true,
+            discard: true,
+            switch_page: true,
+            switch_mouse: true,
+        }
+    }
+}
+
 impl Default for AppPreferences {
     fn default() -> Self {
         Self {
@@ -143,6 +168,7 @@ impl Default for AppPreferences {
             confirm_profile_writes: true,
             startup_defaults_applied: false,
             sidebar_collapsed: false,
+            shortcuts: ShortcutPreferences::default(),
             beta: BetaPreferences::default(),
         }
     }
@@ -628,6 +654,7 @@ mod tests {
         assert!(!defaults.confirm_discard);
         assert!(!defaults.beta.sidebar_device_images);
         assert!(!defaults.beta.fps_overlay);
+        assert_eq!(defaults.shortcuts, ShortcutPreferences::default());
         assert_eq!(
             serde_json::from_str::<AppPreferences>("{}").unwrap(),
             defaults
@@ -641,6 +668,8 @@ mod tests {
         assert!(saved.confirm_discard);
         // A file written before the sidebar could be collapsed opens expanded.
         assert!(!saved.sidebar_collapsed);
+        // Shortcuts added after this file was written remain available.
+        assert_eq!(saved.shortcuts, ShortcutPreferences::default());
         // Files written before the beta group get every one of its switches off.
         assert_eq!(saved.beta, BetaPreferences::default());
         assert!(
@@ -653,6 +682,13 @@ mod tests {
             serde_json::from_str(r#"{"beta":{"sidebar_device_images":true}}"#).unwrap();
         assert!(beta.beta.sidebar_device_images);
         assert!(!beta.beta.fps_overlay);
+        // One shortcut choice does not disable the other families.
+        let shortcuts: AppPreferences =
+            serde_json::from_str(r#"{"shortcuts":{"apply":false}}"#).unwrap();
+        assert!(!shortcuts.shortcuts.apply);
+        assert!(shortcuts.shortcuts.discard);
+        assert!(shortcuts.shortcuts.switch_page);
+        assert!(shortcuts.shortcuts.switch_mouse);
     }
 
     #[test]

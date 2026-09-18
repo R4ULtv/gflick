@@ -16,6 +16,10 @@ enum Preference {
     Apply,
     Discard,
     Profiles,
+    ShortcutApply,
+    ShortcutDiscard,
+    ShortcutPage,
+    ShortcutMouse,
 }
 impl SettingsView {
     pub(crate) fn open_preferences(&mut self, cx: &mut Context<Self>) {
@@ -116,6 +120,10 @@ impl SettingsView {
             Preference::Apply => next.confirm_apply = value,
             Preference::Discard => next.confirm_discard = value,
             Preference::Profiles => next.confirm_profile_writes = value,
+            Preference::ShortcutApply => next.shortcuts.apply = value,
+            Preference::ShortcutDiscard => next.shortcuts.discard = value,
+            Preference::ShortcutPage => next.shortcuts.switch_page = value,
+            Preference::ShortcutMouse => next.shortcuts.switch_mouse = value,
         }
         match next.save() {
             Ok(()) => {
@@ -423,6 +431,33 @@ impl SettingsView {
                     )
                     .into_any_element()
             };
+        let shortcut = |id: &'static str,
+                        label: &'static str,
+                        help: &'static str,
+                        keys: &'static [&'static str],
+                        checked: bool,
+                        key: Preference| {
+            ui::setting_row()
+                .child(ui::row_copy(label, help, false))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .children(keys.iter().map(|key| ui::chip(*key)))
+                        .child(
+                            Switch::new(id)
+                                .checked(checked)
+                                .disabled(!self.preferences_loaded)
+                                .on_click(cx.listener(move |view, checked, _, cx| {
+                                    view.set_preference(key, *checked, cx)
+                                })),
+                        )
+                        .child(ui::switch_state(checked)),
+                )
+                .into_any_element()
+        };
         // External-service switches stay visible but disabled until their state loads.
         let service = |id: &'static str,
                        label: &'static str,
@@ -580,6 +615,52 @@ impl SettingsView {
                                      profile is in control.",
                                 self.preferences.confirm_profile_writes,
                                 Preference::Profiles,
+                            ),
+                        ])),
+                )
+                .child(
+                    ui::card()
+                        .child(ui::card_header(
+                            IconName::Keyboard,
+                            "Keyboard shortcuts",
+                            "The keys are fixed. Turn off any action you do not want active.",
+                        ))
+                        .child(ui::card_rows(vec![
+                            shortcut(
+                                "shortcut-apply",
+                                "Apply changes",
+                                "Write the selected mouse’s pending changes.",
+                                &[APPLY_KEY_HINT],
+                                self.preferences.shortcuts.apply,
+                                Preference::ShortcutApply,
+                            ),
+                            shortcut(
+                                "shortcut-discard",
+                                "Discard changes",
+                                "Restore the selected mouse’s current values.",
+                                &[DISCARD_KEY_HINT],
+                                self.preferences.shortcuts.discard,
+                                Preference::ShortcutDiscard,
+                            ),
+                            shortcut(
+                                "shortcut-pages",
+                                "Switch mouse page",
+                                "Open Performance, Buttons, or Device details for this mouse.",
+                                &PAGE_KEY_HINTS,
+                                self.preferences.shortcuts.switch_page,
+                                Preference::ShortcutPage,
+                            ),
+                            shortcut(
+                                "shortcut-mice",
+                                "Switch mouse",
+                                "Move through mice like browser tabs, or jump directly; 9 opens the last mouse.",
+                                &[
+                                    MOUSE_CYCLE_KEY_HINTS[0],
+                                    MOUSE_CYCLE_KEY_HINTS[1],
+                                    MOUSE_SELECT_KEY_HINT,
+                                ],
+                                self.preferences.shortcuts.switch_mouse,
+                                Preference::ShortcutMouse,
                             ),
                         ])),
                 )

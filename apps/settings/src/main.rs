@@ -23,7 +23,7 @@ use gflick_protocol::{
 };
 use gpui_fps::fps_monitor;
 use gpui_kit::component::{
-    ActiveTheme, Disableable, Icon, Root, Selectable, Sizable, StyledExt,
+    ActiveTheme, Disableable, Icon, Root, Selectable, Sizable, StyledExt, WindowExt,
     button::{Button, ButtonVariants},
     scroll::ScrollableElement,
 };
@@ -94,7 +94,42 @@ const SELECTED_ROW: u32 = 0x30343f;
 const LOGO_SIZE: f32 = 32.0;
 const LOGO_SVG: &[u8] = include_bytes!("../../../website/public/favicon.svg");
 
-actions!(gflick_settings, [ToggleFps, ToggleSidebar]);
+actions!(
+    gflick_settings,
+    [ToggleFps, ToggleSidebar, ApplyChanges, DiscardChanges]
+);
+
+const APPLY_KEY: &str = if cfg!(target_os = "macos") {
+    "cmd-s"
+} else {
+    "ctrl-s"
+};
+pub(crate) const APPLY_KEY_HINT: &str = if cfg!(target_os = "macos") {
+    "⌘S"
+} else {
+    "Ctrl+S"
+};
+const DISCARD_KEY: &str = if cfg!(target_os = "macos") {
+    "cmd-shift-d"
+} else {
+    "ctrl-shift-d"
+};
+pub(crate) const DISCARD_KEY_HINT: &str = if cfg!(target_os = "macos") {
+    "⇧⌘D"
+} else {
+    "Ctrl+Shift+D"
+};
+pub(crate) const PAGE_KEY_HINTS: [&str; 3] = if cfg!(target_os = "macos") {
+    ["⌥1", "⌥2", "⌥3"]
+} else {
+    ["Alt+1", "Alt+2", "Alt+3"]
+};
+pub(crate) const MOUSE_CYCLE_KEY_HINTS: [&str; 2] = ["Ctrl+Tab", "Ctrl+Shift+Tab"];
+pub(crate) const MOUSE_SELECT_KEY_HINT: &str = if cfg!(target_os = "macos") {
+    "⌘1–9"
+} else {
+    "Ctrl+1–9"
+};
 
 /// The sidebar's shortcut, and the way it is written in a tooltip.
 const SIDEBAR_KEY: &str = if cfg!(target_os = "macos") {
@@ -128,6 +163,21 @@ enum Page {
     Details,
     Preferences,
 }
+
+#[derive(Clone, PartialEq, gpui_kit::Action)]
+#[action(namespace = gflick_settings, no_json)]
+struct ShowPage(Page);
+
+#[derive(Clone, Copy, PartialEq)]
+enum MouseTarget {
+    Relative(isize),
+    Index(usize),
+    Last,
+}
+
+#[derive(Clone, PartialEq, gpui_kit::Action)]
+#[action(namespace = gflick_settings, no_json)]
+struct SwitchMouse(MouseTarget);
 
 struct SettingsView {
     preferences: preferences::Preferences,
@@ -616,6 +666,63 @@ impl SettingsView {
             self.page = Page::Performance;
         }
         cx.notify();
+    }
+
+    fn shortcut_device_action(
+        &mut self,
+        discard: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let enabled = if discard {
+            self.preferences.shortcuts.discard
+        } else {
+            self.preferences.shortcuts.apply
+        };
+        if !enabled || self.page == Page::Preferences || window.has_active_dialog(cx) {
+            return;
+        }
+        if let Some(editor) = self.active_editor() {
+            self.confirm_device_action(editor, discard, window, cx);
+        }
+    }
+
+    fn shortcut_page(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.preferences.shortcuts.switch_page
+            || self.page == Page::Preferences
+            || self.selected_state().is_none()
+            || window.has_active_dialog(cx)
+        {
+            return;
+        }
+        self.page = page;
+        cx.notify();
+    }
+
+    fn shortcut_mouse(&mut self, target: MouseTarget, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.preferences.shortcuts.switch_mouse
+            || self.devices.is_empty()
+            || self.working(cx)
+            || !self.snapshot_visible()
+            || window.has_active_dialog(cx)
+        {
+            return;
+        }
+        let index = match target {
+            MouseTarget::Relative(offset) => {
+                let current = self
+                    .selected_id
+                    .as_ref()
+                    .and_then(|id| self.devices.iter().position(|device| &device.id == id))
+                    .unwrap_or(0);
+                (current as isize + offset).rem_euclid(self.devices.len() as isize) as usize
+            }
+            MouseTarget::Index(index) => index,
+            MouseTarget::Last => self.devices.len() - 1,
+        };
+        if let Some(id) = self.devices.get(index).map(|device| device.id.clone()) {
+            self.select(id, cx);
+        }
     }
 
     fn active_editor(&self) -> Option<Entity<editor::Editor>> {
@@ -2064,6 +2171,18 @@ impl Render for SettingsView {
             .update(cx, |preview, cx| preview.set_view(model, color, art, cx));
         div()
             .track_focus(&self.focus)
+            .on_action(cx.listener(|view, _: &ApplyChanges, window, cx| {
+                view.shortcut_device_action(false, window, cx)
+            }))
+            .on_action(cx.listener(|view, _: &DiscardChanges, window, cx| {
+                view.shortcut_device_action(true, window, cx)
+            }))
+            .on_action(cx.listener(|view, action: &ShowPage, window, cx| {
+                view.shortcut_page(action.0, window, cx)
+            }))
+            .on_action(cx.listener(|view, action: &SwitchMouse, window, cx| {
+                view.shortcut_mouse(action.0, window, cx)
+            }))
             // `fps_monitor` pins itself absolutely, so its parent must be relative.
             .relative()
             .size_full()
@@ -2441,13 +2560,44 @@ fn main() {
         .run(|cx: &mut App| {
             gpui_kit::init(cx);
             theme::apply(cx);
-            cx.bind_keys([
+            let mut keys = vec![
                 KeyBinding::new(FPS_KEY, ToggleFps, None),
                 KeyBinding::new(SIDEBAR_KEY, ToggleSidebar, None),
+                KeyBinding::new(APPLY_KEY, ApplyChanges, None),
+                KeyBinding::new(DISCARD_KEY, DiscardChanges, None),
+                KeyBinding::new("alt-1", ShowPage(Page::Performance), None),
+                KeyBinding::new("alt-2", ShowPage(Page::Buttons), None),
+                KeyBinding::new("alt-3", ShowPage(Page::Details), None),
+                KeyBinding::new("ctrl-tab", SwitchMouse(MouseTarget::Relative(1)), None),
+                KeyBinding::new(
+                    "ctrl-shift-tab",
+                    SwitchMouse(MouseTarget::Relative(-1)),
+                    None,
+                ),
                 // Dialogs default to Cancel: Enter must never accidentally send
                 // hardware writes or throw away a draft. Explicit buttons act.
                 KeyBinding::new("enter", gpui_kit::component::dialog::Cancel, Some("Dialog")),
-            ]);
+            ];
+            let mouse_modifier = if cfg!(target_os = "macos") {
+                "cmd"
+            } else {
+                "ctrl"
+            };
+            for number in 1..=8 {
+                keys.push(KeyBinding::new(
+                    &format!("{mouse_modifier}-{number}"),
+                    SwitchMouse(MouseTarget::Index(number - 1)),
+                    None,
+                ));
+            }
+            // Match browser tabs: 9 always means the last mouse, even when
+            // fewer than nine are currently known.
+            keys.push(KeyBinding::new(
+                &format!("{mouse_modifier}-9"),
+                SwitchMouse(MouseTarget::Last),
+                None,
+            ));
+            cx.bind_keys(keys);
 
             let bounds = Bounds::centered(None, size(px(1220.0), px(820.0)), cx);
             // The view is built inside the window's builder; the shortcuts
@@ -2495,6 +2645,34 @@ fn main() {
 
             cx.activate(true);
         });
+}
+
+#[cfg(test)]
+mod shortcut_tests {
+    use super::*;
+
+    #[test]
+    fn every_fixed_shortcut_is_a_valid_keystroke() {
+        for key in [
+            APPLY_KEY,
+            DISCARD_KEY,
+            "alt-1",
+            "alt-2",
+            "alt-3",
+            "ctrl-tab",
+            "ctrl-shift-tab",
+        ] {
+            gpui_kit::Keystroke::parse(key).unwrap();
+        }
+        let modifier = if cfg!(target_os = "macos") {
+            "cmd"
+        } else {
+            "ctrl"
+        };
+        for number in 1..=9 {
+            gpui_kit::Keystroke::parse(&format!("{modifier}-{number}")).unwrap();
+        }
+    }
 }
 
 #[cfg(test)]
